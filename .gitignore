@@ -1,0 +1,32 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Runtime outputs
+runs/
+literature_runs/
+download_runs/
+已下载全文/
+内部数据_一般不用打开/
+*.crdownload
+*.tmp
+*.log
+*.sqlite
+*.sqlite-*
+
+# Downloaded content and generated reports
+*.pdf
+*.zip
+*.ris
+*.bib
+*.csv
+!examples/*.csv
+
+# Local configuration
+.env
+.env.*
+config.local.*
+zotero-data/
