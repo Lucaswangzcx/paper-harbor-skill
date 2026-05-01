@@ -230,7 +230,13 @@ def parse_prompt(prompt: str) -> dict[str, Any]:
         if if_max:
             result["if_max"] = float(if_max.group(1))
 
-    out_match = re.search(r"(?:下载到|输出到|保存到)\s*[\"“]?([^\"”\n]+)[\"”]?", text)
+    zotero_collection = re.search(r"保存到\s*Zotero\s*(?:的|目录|collection)?\s*[\"“]([^\"”]+)[\"”]", text, re.I)
+    if zotero_collection:
+        result["zotero_collection"] = zotero_collection.group(1).strip()
+
+    out_match = re.search(r"(?:下载到|输出到)\s*[\"“]?([^\"”\n]+)[\"”]?", text)
+    if not out_match:
+        out_match = re.search(r"保存到(?!\s*Zotero)\s*[\"“]?([^\"”\n]+)[\"”]?", text, re.I)
     if out_match:
         result["out"] = out_match.group(1).strip().rstrip("。；;,，")
 
@@ -314,6 +320,12 @@ def create_scaffold(args: argparse.Namespace) -> Path:
     if_max = args.if_max if args.if_max is not None else prompt_values.get("if_max")
 
     site = SITES[site_key]
+    default_collection = {
+        "wos": "web of science",
+        "sciencedirect": "science direct",
+        "cnki": "中国知网",
+    }.get(site_key, site["name"])
+    zotero_collection = args.zotero_collection or prompt_values.get("zotero_collection") or default_collection
     out_root = Path(args.out or prompt_values.get("out") or ".").expanduser().resolve()
     run_name = args.run_name or f"{now_stamp()}_{site_key}_{slugify(keywords)}"
     run_dir = out_root / run_name
@@ -336,6 +348,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
         "year_to": year_to,
         "impact_factor_min": if_min,
         "impact_factor_max": if_max,
+        "zotero_collection": zotero_collection,
         "created_at": dt.datetime.now().isoformat(timespec="seconds"),
         "login_command": login_command(site_key),
         "safety": {
@@ -379,6 +392,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 - 出版时间：{year_text}
 - 影响因子要求：{if_text}
 - 计划整理数量：{limit}{"（已按单次上限 50 自动限制）" if limit_capped else ""}
+- Zotero 目录：{zotero_collection}
 
 ## 强制合规规则
 
@@ -398,6 +412,16 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 
 登录完成后，再让 Codex 继续检索和 Zotero 入库。
 
+## 首次运行准备
+
+请确保已安装并启用：
+
+1. Zotero Desktop
+2. 当前浏览器里的 Zotero Connector
+3. 当前浏览器里的 EasyScholar
+
+并在 Zotero 里创建/选中 collection：`{zotero_collection}`。如果 ScienceDirect 页面支持，EasyScholar 会在检索结果旁显示 IF，Paper Harbor 会读取这些可见标签。
+
 ## 合规说明
 
 这里只保存题名、DOI、期刊、年份、地址等元数据到 Zotero，不下载全文。遇到验证码、付费、权限不足或异常活动提醒时，应停止并由你手动处理。
@@ -412,6 +436,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 出版时间：{year_text}
 影响因子：{if_text}
 计划整理数量：{limit}
+Zotero 目录：{zotero_collection}
 
 重要：用户必须自己登录；不得绕过付费墙、验证码或权限限制。
 """
@@ -428,6 +453,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 - 出版时间：{year_text}
 - 影响因子：{if_text}
 - 整理数量：{limit}{"（用户请求 " + str(requested_limit) + "，已按单次上限 50 自动限制）" if limit_capped else ""}
+- Zotero 目录：{zotero_collection}
 
 ## 强制合规规则
 
@@ -447,12 +473,14 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 
 1. 用户打开上述浏览器并完成登录。
 2. Codex 检查端口是否可访问。
-3. 在官方网站 UI 中检索关键词并套用出版时间筛选。
-4. 收集候选文献、文章地址、DOI、期刊、年份、摘要、可访问状态。
-5. 根据主题相关性、年份、可访问性和可信影响因子数据分为高/中/低优先级。
-6. 先保存候选清单，再从候选清单串行写入 Zotero。
-7. 不打开下载完整期刊/Download full issue，不点击 View PDF 或 Download PDF。
-8. 从高优先级开始保存 Zotero 元数据，直到达到数量要求或无更多匹配文献。
+3. Codex 检查 Zotero Desktop、Zotero Connector、EasyScholar 和 Zotero collection。
+4. 在官方网站 UI 中检索关键词并套用出版时间筛选。
+5. 收集候选文献、文章地址、DOI、期刊、年份、摘要、可访问状态。
+6. 如果页面显示 EasyScholar IF 标签，读取并写入影响因子字段；如果没有显示，先停在候选层，提示用户登录 EasyScholar 并刷新页面后再重新运行。
+7. 根据主题相关性、年份、可访问性和可信影响因子数据分为高/中/低优先级。
+8. 先保存候选清单，再从候选清单串行写入 Zotero 的 `{zotero_collection}`。
+9. 不打开下载完整期刊/Download full issue，不点击 View PDF 或 Download PDF。
+10. 从高优先级开始保存 Zotero 元数据，直到达到数量要求或无更多匹配文献。
 9. 更新 CSV 清单和文献整理报告。
 
 ## 影响因子规则
@@ -461,7 +489,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 
 `内部数据_一般不用打开/journal_impact_factors.csv`
 
-没有可信影响因子数据时，不臆造 IF；将匹配但 IF 待核验的文献放入中优先级。
+没有可信影响因子数据时，不臆造 IF；将匹配但 IF 待核验的文献放入中优先级。若用户明确要求 IF 阈值，未显示 IF 的条目不自动入库。
 """
     write_text(run_dir / "检索计划.md", plan)
 
@@ -487,6 +515,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
     <tr><th>出版时间</th><td>{year_text}</td></tr>
     <tr><th>影响因子</th><td>{if_text}</td></tr>
     <tr><th>计划整理数量</th><td>{limit}{"（已按单次上限 50 自动限制）" if limit_capped else ""}</td></tr>
+    <tr><th>Zotero 目录</th><td>{zotero_collection}</td></tr>
     <tr><th>当前状态</th><td>目录已创建，等待登录、检索和 Zotero 入库。</td></tr>
   </table>
   <h2>强制合规规则</h2>
@@ -516,6 +545,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
                 "no_full_text_download": True,
                 "no_bypass": True,
                 "blocked_items_go_to_pending_csv": True,
+                "zotero_collection": zotero_collection,
             },
             ensure_ascii=False,
             indent=2,
@@ -536,6 +566,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--if-min", type=float, help="Minimum impact factor")
     parser.add_argument("--if-max", type=float, help="Maximum impact factor")
     parser.add_argument("--limit", type=int, help="Record count to screen/import")
+    parser.add_argument("--zotero-collection", help="Zotero collection name to save metadata into")
     parser.add_argument("--out", help="Output root directory")
     parser.add_argument("--run-name", help="Exact run folder name")
     return parser

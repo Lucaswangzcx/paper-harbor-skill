@@ -13,24 +13,32 @@ Use this skill when the user asks to search for papers, screen literature, and s
 
 The user must log in manually in the matching browser profile before any search. Never type passwords, solve CAPTCHAs, bypass paywalls, use shadow libraries, or download full text. Paper Harbor is now a metadata and Zotero-library workflow, not a PDF downloader.
 
-Preferred handoff is metadata-only Zotero saving: keep Zotero Desktop open, search the official site with the logged-in browser, collect screened metadata, then save journal-article items to Zotero without attachments. Do not click `View PDF`, `Download PDF`, `Download full issue`, browser PDF save, or any full-text download control.
+Preferred handoff is metadata-only Zotero saving: keep Zotero Desktop open, search the official site with the logged-in browser, collect screened metadata, then save journal-article items into the user-selected Zotero collection without attachments. Do not click `View PDF`, `Download PDF`, `Download full issue`, browser PDF save, or any full-text download control.
+
+For first use, guide the user to install:
+
+- Zotero Desktop
+- Zotero Connector in the same browser profile used by the site port
+- EasyScholar in the same browser profile, so ScienceDirect/Web of Science/CNKI result pages can display journal ranking and IF badges when EasyScholar supports that page
+
+The user should also create a Zotero collection for the run before import, usually named after the site or project, for example `science direct`, `web of science`, or `中国知网`. Paper Harbor should save metadata into that collection whenever Zotero Connector exposes it.
 
 ## Prompt Template
 
 Recommended user prompt:
 
 ```text
-Use skill paper-harbor 帮我在“网站名”整理“关键词”的“时间限制”文献，“影响因子限制”，“篇数限制”，保存到 Zotero 并输出到“目录”
+Use skill paper-harbor 帮我在“网站名”整理“关键词”的“时间限制”文献，“影响因子限制”，“篇数限制”，保存到 Zotero 的“Zotero目录名”并输出到“目录”
 ```
 
 Examples:
 
 ```text
-Use skill paper-harbor 帮我在“ScienceDirect”整理“solid electrolyte interphase”的“2021-2026”文献，“影响因子大于5”，“先整理3篇”，保存到 Zotero 并输出到“.\runs\sei”
+Use skill paper-harbor 帮我在“ScienceDirect”整理“solid electrolyte interphase”的“2021-2026”文献，“影响因子大于5”，“先整理3篇”，保存到 Zotero 的“science direct”并输出到“.\runs\sei”
 ```
 
 ```text
-Use skill paper-harbor 帮我在“中国知网”整理“钙钛矿太阳能电池 稳定性”的“2022年以来”文献，“不限制影响因子”，“10篇”，保存到 Zotero 并输出到“.\runs\cnki-test”
+Use skill paper-harbor 帮我在“中国知网”整理“钙钛矿太阳能电池 稳定性”的“2022年以来”文献，“不限制影响因子”，“10篇”，保存到 Zotero 的“中国知网”并输出到“.\runs\cnki-test”
 ```
 
 ## End-to-End Behavior
@@ -40,12 +48,13 @@ The user should experience this as one complete workflow, not separate `collect`
 For every run:
 
 1. Parse the prompt and create the output directory.
-2. Run first-use checks for the matching browser port and Zotero Desktop.
-3. If Zotero is missing on first use, guide the user to install Zotero Desktop before the Zotero import phase.
-4. Open or verify the matching logged-in browser port.
-5. Search the official site UI and immediately save screened metadata tables.
-6. Only after metadata is safely written, save screened candidate metadata into Zotero one item at a time.
-7. Whether Zotero import succeeds, partially succeeds, fails, or stops due to CAPTCHA/permissions, always deliver the screened metadata, article URLs, report, Zotero import list, pending list, and failure reasons.
+2. Run first-use checks for the matching browser port, Zotero Desktop, Zotero Connector, EasyScholar, and the requested Zotero collection.
+3. If Zotero or Zotero Connector is missing on first use, guide the user to install Zotero Desktop and Zotero Connector before the Zotero import phase.
+4. If EasyScholar is missing or the site result page has no IF badges, stop at the candidate stage, save the metadata tables and a pending note, and ask the user to log in to EasyScholar and refresh the site before rerunning. Do not invent IF.
+5. Open or verify the matching logged-in browser port.
+6. Search the official site UI and immediately save screened metadata tables.
+7. Only after metadata is safely written, save screened candidate metadata into Zotero one item at a time, targeting the requested Zotero collection.
+8. Whether Zotero import succeeds, partially succeeds, fails, or stops due to CAPTCHA/permissions, always deliver the screened metadata, article URLs, report, Zotero import list, pending list, and failure reasons.
 
 Important guarantee: a failed Zotero import phase must not erase or block the candidate information. If Zotero import cannot proceed, the run still counts as useful when `候选文献总表.csv`, `文章地址总表.csv`, and `待处理文献清单.csv` explain the result.
 
@@ -72,6 +81,7 @@ Extract these fields from the user's prompt. If a field is missing, use the defa
 | `impact_factor` | No | No IF filter; keep IF blank unless available from a user-supplied trusted table or official page |
 | `publication_time` | No | No date filter |
 | `record_count` / `download_count` | No | `20`, capped at `50`; interpreted as number of records to screen/import |
+| `zotero_collection` | No | Use the matching site collection if present, for example `science direct`; otherwise use the currently selected Zotero collection |
 | `output_dir` | No | Current working directory |
 
 Accept site aliases:
@@ -130,13 +140,16 @@ Use the helper:
 powershell -ExecutionPolicy Bypass -File .\scripts\open_zotero_setup.ps1
 ```
 
-This opens the official Zotero download page and Connector help page. Tell the user:
+This opens the official Zotero download page, Connector help page, and EasyScholar pages. Tell the user:
 
 1. Install Zotero Desktop from the official Zotero download page.
 2. Install Zotero Connector for the same browser used by the site port profile. For Edge/Chrome, use the official browser extension flow linked from Zotero's download page.
-3. Open Zotero Desktop and keep it running.
-4. In the browser, pin or expose the Zotero Connector button.
-5. Run `python scripts/zotero_bridge.py doctor` again.
+3. Install EasyScholar in the same browser profile. For Chrome/Edge, use the Chrome Web Store listing for `easyScholar` (`njgedjcccpcfmjecccaajkjiphpddfji`) or the EasyScholar official site.
+4. Open Zotero Desktop and keep it running.
+5. In Zotero, create/select the collection requested in the prompt, for example `science direct`.
+6. In the browser, pin or expose both Zotero Connector and EasyScholar.
+7. Refresh the official site search page and confirm that EasyScholar shows visible IF/ranking badges when the page supports them.
+8. Run `python scripts/zotero_bridge.py doctor` again. The doctor output should show the selected Zotero collection and available targets.
 
 Proceed only when doctor can see `127.0.0.1:23119` and a local Zotero data directory. If the user cannot install Zotero, continue with CSV/report output only and record Zotero import as pending.
 
@@ -194,12 +207,13 @@ README_先看我.md
    - `notes`
 7. Save every article detail URL into `文章地址总表.csv`.
 8. Classify priority:
-   - High: matches topic, publication time, accessible full text, and impact factor satisfies the user's IF requirement when IF is known.
-   - Medium: topic and time match, but IF is missing or full text needs manual confirmation.
+   - High: matches topic and publication time, and impact factor satisfies the user's IF requirement when IF is visible from EasyScholar, an official page, or a trusted user CSV.
+   - Medium: topic and time match, but IF is missing and needs manual confirmation.
    - Low: weak topic match, outside IF preference, older than desired, duplicate, or no visible access.
 9. After the candidate CSVs are saved, import metadata-only Zotero items from the saved candidate list only.
 10. Zotero import strategy:
    - Save one journal-article metadata item at a time through Zotero Desktop's local connector.
+   - Prefer the requested Zotero collection. If the collection is not found, stop import and write pending rows instead of silently saving to the wrong place.
    - Do not request attachments and do not download PDF/HTML/XML full text.
    - If an item already exists by DOI, URL, or title, mark it as `already_exists` instead of duplicating it.
    - If Zotero is unavailable, keep the item in `待处理文献清单.csv`.
@@ -229,6 +243,7 @@ Treat Zotero import failures as reportable states, not as silent errors.
 
 - Use the search page and filters for years, article type, and subject.
 - Prefer `scripts/sciencedirect_drission_run.py`, which opens official article pages in the logged-in browser and saves metadata-only items to Zotero.
+- When EasyScholar badges are visible on the ScienceDirect result page, parse `IF x.x` and ranking labels from those badges and store them in the candidate tables.
 - Do not use direct PDF or visible article download controls.
 - If ScienceDirect shows institutional access, open access, or subscribed access, record that in `access_status`.
 
@@ -243,6 +258,7 @@ Treat Zotero import failures as reportable states, not as silent errors.
 Never invent impact factors. Use one of these sources only:
 
 - A user-supplied CSV placed in `内部数据_一般不用打开/journal_impact_factors.csv`
+- EasyScholar badges visibly rendered in the user's logged-in browser result page
 - An official page visible in the logged-in browser
 - Metadata exported from a licensed institutional tool the user explicitly opened
 
@@ -252,7 +268,7 @@ Recommended CSV headers:
 journal,issn,eissn,impact_factor,year,source,notes
 ```
 
-If the user requests `影响因子大于 5` but no trusted IF source is available, keep IF blank, put otherwise suitable articles in medium priority, and record `IF待核验` in `notes`.
+If the user requests `影响因子大于 5` but no trusted IF source is available, keep IF blank, put otherwise suitable articles in medium priority, and record `IF待核验` in `notes`. Do not import IF-filtered rows into Zotero unless IF is visible and satisfies the filter, or the user explicitly chooses to proceed with missing IF.
 
 ## Safety Rules
 
@@ -273,5 +289,5 @@ A run is complete when:
 - The output directory exists with all required files.
 - `检索计划.md` states the parsed requirements and site/port.
 - Candidate, address, Zotero-import, and pending CSV files are updated.
-- Zotero contains the saved metadata items or the pending CSV explains why import failed.
+- Zotero contains the saved metadata items in the requested collection, or the pending CSV explains why import failed.
 - `文献整理报告.html` summarizes counts, filters, source site, and unresolved items.

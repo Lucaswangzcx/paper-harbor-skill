@@ -87,6 +87,48 @@ def connector_post(method: str, payload: dict[str, object], timeout: float = 15.
         return {"ok": False, "reason": str(exc)}
 
 
+def get_selected_collection() -> dict[str, object]:
+    """Return Zotero's currently selected library or collection target."""
+    result = connector_post("getSelectedCollection", {})
+    if not result.get("ok"):
+        return {"ok": False, "reason": result.get("reason", "getSelectedCollection failed")}
+    data = result.get("data")
+    if not isinstance(data, dict):
+        return {"ok": False, "reason": "unexpected getSelectedCollection response", "data": data}
+    return {"ok": True, **data}
+
+
+def collection_target_by_name(collection_name: str = "", explicit_target: str = "") -> dict[str, str | bool]:
+    """Resolve a Zotero connector target id such as C2 from a collection name."""
+    if explicit_target:
+        return {"ok": True, "target": explicit_target, "name": collection_name or explicit_target}
+    selected = get_selected_collection()
+    if not selected.get("ok"):
+        return {"ok": False, "target": "", "name": collection_name, "reason": str(selected.get("reason", ""))}
+    targets = selected.get("targets") or []
+    wanted = (collection_name or "").strip().lower()
+    if isinstance(targets, list):
+        if wanted:
+            for target in targets:
+                if not isinstance(target, dict):
+                    continue
+                if str(target.get("name", "")).strip().lower() == wanted:
+                    return {"ok": True, "target": str(target.get("id", "")), "name": str(target.get("name", ""))}
+            return {"ok": False, "target": "", "name": collection_name, "reason": "collection not found in Zotero connector targets"}
+        selected_name = str(selected.get("name") or selected.get("libraryName") or "")
+        selected_id = str(selected.get("id") or "")
+        for target in targets:
+            if not isinstance(target, dict):
+                continue
+            if selected_name and str(target.get("name", "")) == selected_name:
+                return {"ok": True, "target": str(target.get("id", "")), "name": selected_name}
+            if selected_id and str(target.get("id", "")) == f"C{selected_id}":
+                return {"ok": True, "target": str(target.get("id", "")), "name": str(target.get("name", selected_name))}
+        if targets and isinstance(targets[0], dict):
+            return {"ok": True, "target": str(targets[0].get("id", "")), "name": str(targets[0].get("name", ""))}
+    return {"ok": False, "target": "", "name": collection_name, "reason": "no Zotero connector targets available"}
+
+
 def candidate_data_dirs(explicit: str | None = None) -> list[Path]:
     roots: list[Path] = []
     if explicit:
@@ -203,7 +245,13 @@ def zotero_item_from_metadata(row: dict[str, str]) -> dict[str, object]:
     return {key: value for key, value in item.items() if value not in ("", [], None)}
 
 
-def save_metadata_item(row: dict[str, str], data_dir: Path | None = None) -> dict[str, object]:
+def save_metadata_item(
+    row: dict[str, str],
+    data_dir: Path | None = None,
+    *,
+    collection_name: str = "",
+    collection_target: str = "",
+) -> dict[str, object]:
     data_dir = data_dir or locate_zotero_data_dir()
     if not data_dir:
         return {"ok": False, "status": "pending", "reason": "Zotero data directory not found"}
@@ -215,12 +263,21 @@ def save_metadata_item(row: dict[str, str], data_dir: Path | None = None) -> dic
         return {"ok": True, "status": "already_exists", "zotero_item_key": existing}
     item = zotero_item_from_metadata(row)
     session = f"paper-harbor-{int(time.time() * 1000)}"
+    target_info = collection_target_by_name(collection_name, collection_target) if (collection_name or collection_target) else {}
+    if collection_name and not target_info.get("ok"):
+        return {
+            "ok": False,
+            "status": "pending",
+            "reason": f"Zotero collection not found or unavailable: {target_info.get('reason', '')}",
+        }
     payload = {
         "sessionID": session,
         "uri": row.get("url", "") or "https://www.sciencedirect.com/",
         "proxy": None,
         "items": [item],
     }
+    if target_info.get("target"):
+        payload["target"] = target_info["target"]
     result = connector_post("saveItems", payload)
     if not result.get("ok"):
         return {"ok": False, "status": "pending", "reason": result.get("reason", "saveItems failed")}
@@ -238,6 +295,8 @@ def save_metadata_item(row: dict[str, str], data_dir: Path | None = None) -> dic
         "ok": True,
         "status": "saved",
         "zotero_item_key": key,
+        "zotero_collection": str(target_info.get("name", "")),
+        "zotero_target": str(target_info.get("target", "")),
         "connector_response": data,
     }
 
@@ -413,10 +472,12 @@ def wait_for_attachment(
 def cmd_doctor(args: argparse.Namespace) -> int:
     ping = ping_zotero()
     data_dir = locate_zotero_data_dir(args.data_dir)
+    selected = get_selected_collection() if ping.get("ok") else {"ok": False}
     result = {
         "zotero_connector_reachable": ping,
         "zotero_data_dir": str(data_dir) if data_dir else "",
         "zotero_sqlite": str(data_dir / "zotero.sqlite") if data_dir else "",
+        "selected_collection": selected,
     }
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if ping.get("ok") and data_dir else 1

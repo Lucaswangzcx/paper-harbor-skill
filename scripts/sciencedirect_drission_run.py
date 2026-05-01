@@ -86,7 +86,7 @@ def open_tab(browser, url: str | None = None):
 
 
 def search_url(query: str, year_from: str, year_to: str) -> str:
-    params = {"qs": query}
+    params = {"qs": query, "show": "100"}
     if year_from or year_to:
         params["date"] = f"{year_from or ''}-{year_to or ''}"
     return "https://www.sciencedirect.com/search?" + urlencode(params)
@@ -94,9 +94,14 @@ def search_url(query: str, year_from: str, year_to: str) -> str:
 
 def js_collect_results() -> str:
     return r"""
+const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+const stripBadges = (s) => clean(s)
+  .replace(/(?:EI检索|SCI升级版\s*[\u4e00-\u9fa5A-Za-z\s]*?\d区|[\u4e00-\u9fa5A-Za-z]+TOP|IF\s*\d+(?:\.\d+)?)/g, '')
+  .replace(/\s+/g, ' ')
+  .trim();
 const anchors = [...document.querySelectorAll('a[href*="/science/article/"]')];
 const pdfLinks = anchors
-  .map((a) => ({ href: new URL(a.getAttribute('href'), location.href).href, text: (a.innerText || a.textContent || '').replace(/\s+/g, ' ').trim() }))
+  .map((a) => ({ href: new URL(a.getAttribute('href'), location.href).href, text: clean(a.innerText || a.textContent || '') }))
   .filter((x) => /\/pdfft\?/i.test(x.href));
 const piiFrom = (href) => {
   const match = href.match(/\/pii\/([^/?#]+)/i);
@@ -106,37 +111,51 @@ const seen = new Set();
 const items = [];
 for (const a of anchors) {
   const href = new URL(a.getAttribute('href'), location.href).href.split('#')[0];
-  const title = (a.innerText || a.textContent || '').replace(/\s+/g, ' ').trim();
+  const title = stripBadges(a.innerText || a.textContent || '');
   if (!title || title.length < 8 || title === 'View PDF' || /\/pdfft\?/i.test(href) || seen.has(href)) continue;
   seen.add(href);
   const pii = piiFrom(href);
   const matchingPdf = pdfLinks.find((x) => pii && piiFrom(x.href) === pii);
   const card = a.closest('li, article, div.ResultItem, div[class*="result"], div[class*="Result"], div[class*="card"]') || a.parentElement;
-  const text = card ? (card.innerText || '').replace(/\s+/g, ' ').trim() : '';
+  const text = card ? clean(card.innerText || '') : '';
+  const easyScholarLabels = card
+    ? [...card.querySelectorAll('.easyscholar-ranking, [class*="easyscholar"]')]
+        .map((el) => clean(el.innerText || el.textContent || ''))
+        .filter(Boolean)
+    : [];
+  const easyScholarText = easyScholarLabels.join('; ');
+  const ifMatch = (easyScholarText || text).match(/\bIF\s*(\d+(?:\.\d+)?)\b/i);
+  const jcrMatch = easyScholarText.match(/SCI升级版\s*([^;]*?\d区)/);
   const afterTitle = text.includes(title) ? text.slice(text.indexOf(title) + title.length) : text;
   const dateMatch = afterTitle.match(/(?:Available online\s+)?(?:\d{1,2}\s+)?(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+20\d{2}|\b20\d{2}\b/i);
-  const journal = dateMatch ? afterTitle.slice(0, dateMatch.index).replace(/^(?:\s|,|;|-)+/, '').trim() : '';
+  const journal = stripBadges(dateMatch ? afterTitle.slice(0, dateMatch.index).replace(/^(?:\s|,|;|-)+/, '').trim() : '');
   const yearMatch = text.match(/\b(20\d{2}|19\d{2})\b/);
   const doiMatch = text.match(/10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i);
   const hasOpen = /open access/i.test(text);
   const hasFull = Boolean(matchingPdf) || /full text access|view pdf|open access/i.test(text);
+  const ifNote = ifMatch ? `EasyScholar IF ${ifMatch[1]}` : 'IF待核验：页面未检测到 EasyScholar IF 标签';
   items.push({
     title,
     url: href,
     journal,
     publication_year: yearMatch ? yearMatch[1] : '',
     doi: doiMatch ? doiMatch[0] : '',
+    impact_factor: ifMatch ? ifMatch[1] : '',
+    metric_year: '',
+    metric_source: ifMatch ? 'EasyScholar browser badge on ScienceDirect result page' : '',
+    journal_ranking: jcrMatch ? jcrMatch[1] : '',
+    easyscholar_labels: easyScholarText,
     pdf_url: matchingPdf ? matchingPdf.href : '',
     access_status: hasOpen ? 'open access visible in result' : (hasFull ? 'official View PDF visible in result' : 'unknown from result'),
-    notes: (hasOpen ? 'Open access visible in result' : (hasFull ? 'Full text access/View PDF visible in result' : 'No visible full-text signal in result')) + '; IF待核验：ScienceDirect结果页不提供影响因子，需在 journal_impact_factors.csv 中补充可信IF'
+    notes: (hasOpen ? 'Open access visible in result' : (hasFull ? 'Full text access/View PDF visible in result' : 'No visible full-text signal in result')) + '; ' + ifNote + (easyScholarText ? `; EasyScholar: ${easyScholarText}` : '')
   });
 }
 return items
   .sort((a, b) => {
-    const score = (x) => (x.pdf_url ? 4 : 0) + (/open access/i.test(x.access_status) ? 2 : 0) + (/full text|view pdf/i.test(x.access_status) ? 1 : 0);
+    const score = (x) => (Number(x.impact_factor || 0) * 10) + (x.pdf_url ? 4 : 0) + (/open access/i.test(x.access_status) ? 2 : 0) + (/full text|view pdf/i.test(x.access_status) ? 1 : 0);
     return score(b) - score(a);
   })
-  .slice(0, 30);
+  .slice(0, 50);
 """
 
 
@@ -226,12 +245,12 @@ def save_candidate_tables(run_dir: Path, rows: list[dict[str, str]]) -> None:
         [
             row.get("priority", "中"),
             row.get("title", ""),
-            "",
+            row.get("authors", ""),
             row.get("journal", ""),
             row.get("publication_year", ""),
-            "",
-            "",
-            "",
+            row.get("impact_factor", ""),
+            row.get("metric_year", ""),
+            row.get("metric_source", ""),
             row.get("doi", ""),
             "ScienceDirect",
             row.get("url", ""),
@@ -239,7 +258,7 @@ def save_candidate_tables(run_dir: Path, rows: list[dict[str, str]]) -> None:
             row.get("access_status", ""),
             row.get("zotero_status", "not_attempted"),
             row.get("zotero_item_key", ""),
-            row.get("next_action", "try official full issue selector or View PDF download"),
+            row.get("next_action", "save metadata to Zotero; no PDF download"),
             row.get("notes", ""),
         ]
         for row in rows
@@ -287,19 +306,19 @@ def save_candidate_tables(run_dir: Path, rows: list[dict[str, str]]) -> None:
             [
                 [
                     row.get("title", ""),
-                    "",
+                    row.get("authors", ""),
                     row.get("journal", ""),
                     row.get("publication_year", ""),
-                    "",
-                    "",
-                    "",
+                    row.get("impact_factor", ""),
+                    row.get("metric_year", ""),
+                    row.get("metric_source", ""),
                     row.get("doi", ""),
                     "ScienceDirect",
                     row.get("url", ""),
                     row.get("access_status", ""),
                     row.get("zotero_status", "not_attempted"),
                     row.get("zotero_item_key", ""),
-                    row.get("next_action", "try official full issue selector or View PDF download"),
+                    row.get("next_action", "save metadata to Zotero; no PDF download"),
                     row.get("notes", ""),
                 ]
                 for row in rows
@@ -369,6 +388,14 @@ def rename_downloaded_file(path: Path, title: str) -> Path:
         counter += 1
     path.replace(target)
     return target
+
+
+def parse_float(value: object) -> float | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    match = re.search(r"\d+(?:\.\d+)?", text)
+    return float(match.group(0)) if match else None
 
 
 def save_official_pdf_preview_url(pdf_url: str, download_dir: Path, title: str) -> Path | None:
@@ -507,10 +534,12 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     tab.get(url)
     tab.wait.doc_loaded()
     results = []
-    for _ in range(15):
+    if_min = parse_float(args.if_min)
+    for _ in range(20):
         time.sleep(2)
         results = tab.run_js(js_collect_results()) or []
-        if results:
+        has_easy_scholar_if = any(parse_float(row.get("impact_factor", "")) is not None for row in results)
+        if results and (if_min is None or has_easy_scholar_if):
             break
     (internal_dir / "raw_exports" / "sciencedirect_drission_search_results.json").write_text(
         json.dumps(results, ensure_ascii=False, indent=2),
@@ -519,11 +548,61 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 
     for row in results:
         access = row.get("access_status", "")
+        if_value = parse_float(row.get("impact_factor", ""))
         row["source"] = "ScienceDirect"
-        row["priority"] = "中" if re.search(r"open access|view pdf|full text", access, re.I) else "低"
+        if if_min is None:
+            row["priority"] = "高" if if_value is not None else ("中" if re.search(r"open access|view pdf|full text", access, re.I) else "低")
+        elif if_value is None:
+            row["priority"] = "中"
+            row["notes"] = (row.get("notes", "") + f"; 未检测到 EasyScholar IF，暂不按 IF>{if_min:g} 入库").strip("; ")
+        elif if_value > if_min:
+            row["priority"] = "高"
+        else:
+            row["priority"] = "低"
+            row["notes"] = (row.get("notes", "") + f"; IF {if_value:g} 不满足 IF>{if_min:g}").strip("; ")
         row["zotero_status"] = "not_attempted"
         row["zotero_item_key"] = ""
-        row["next_action"] = "save metadata to Zotero; no PDF download"
+        row["next_action"] = "save metadata to Zotero collection; no PDF download"
+
+    if if_min is not None and not any(parse_float(row.get("impact_factor", "")) is not None for row in results):
+        for row in results:
+            row["priority"] = "中"
+            row["notes"] = (row.get("notes", "") + f"; EasyScholar 未显示 IF，需先登录插件并刷新 ScienceDirect 页面后再跑 IF>{if_min:g}").strip("; ")
+        save_candidate_tables(run_dir, results)
+        write_csv(run_dir / "已入库Zotero文献清单.csv", ["record_id", "title", "doi", "source", "url", "journal", "publication_year", "zotero_item_key", "zotero_status", "saved_at", "access_status", "notes"], [])
+        write_csv(
+            run_dir / "待处理文献清单.csv",
+            ["title", "doi", "source", "url", "reason", "next_action", "priority"],
+            [["", "", "ScienceDirect", "", f"EasyScholar IF not visible; log in EasyScholar and refresh the ScienceDirect results page, then rerun if IF>{if_min:g} is required", "wait for EasyScholar IF badges to appear on the results page", "中"]],
+        )
+        html = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>文献整理报告</title><body>
+<h1>文献整理报告</h1>
+<p>运行方式：DrissionPage 接管 9225 已登录浏览器；模式：Zotero 元数据入库，不下载 PDF。</p>
+<p>关键词：{args.query}</p>
+<p>年份：{args.year_from}-{args.year_to}</p>
+<p>影响因子：{args.if_min or "不限制"}；当前未检测到 EasyScholar IF 标签，请先登录 EasyScholar 并刷新 ScienceDirect 结果页。</p>
+<p>Zotero collection：{args.zotero_collection or args.zotero_target or "Zotero 当前选中位置"}</p>
+<p>候选：{len(results)}，符合入库条件：0，尝试入库：0，成功/已存在：0，待处理：1</p>
+<p>说明：已保存候选清单，但由于未检测到 EasyScholar IF，未进入 Zotero 入库。请登录 EasyScholar 并刷新页面后从头再跑。</p>
+</body></html>"""
+        (run_dir / "文献整理报告.html").write_text(html, encoding="utf-8")
+        summary = {
+            "runner": "drission",
+            "download_method": "metadata_only",
+            "query": args.query,
+            "year_from": args.year_from,
+            "year_to": args.year_to,
+            "candidates": len(results),
+            "eligible_for_zotero": 0,
+            "attempted": 0,
+            "downloaded": 0,
+            "zotero_saved": 0,
+            "pending": 1,
+            "zotero_collection": args.zotero_collection or args.zotero_target or "Zotero 当前选中位置",
+            "needs_easyscholar_login": True,
+        }
+        (internal_dir / "logs" / "sciencedirect_drission_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        return summary
     save_candidate_tables(run_dir, results)
 
     zotero_rows: list[list[str]] = []
@@ -531,10 +610,13 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     zotero_saved = 0
     attempts = 0
     data_dir = locate_zotero_data_dir(args.zotero_data_dir)
-    max_requested = min(int(args.limit), len(results))
-    max_attempts = min(int(args.max_attempts or max_requested), max_requested, len(results))
+    import_candidates = [row for row in results if row.get("priority") == "高"]
+    if if_min is None:
+        import_candidates.extend(row for row in results if row.get("priority") == "中")
+    max_requested = min(int(args.limit), len(import_candidates))
+    max_attempts = min(int(args.max_attempts or max_requested), max_requested, len(import_candidates))
 
-    for row in results[:max_attempts]:
+    for row in import_candidates[:max_attempts]:
         if zotero_saved >= args.limit:
             break
         attempts += 1
@@ -555,7 +637,12 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         row["doi"] = info.get("doi") or row.get("doi", "")
         row["title"] = info.get("title") or row.get("title", "")
         row["has_full_issue"] = str(bool(info.get("has_full_issue")))
-        result = save_metadata_item(row, data_dir=data_dir)
+        result = save_metadata_item(
+            row,
+            data_dir=data_dir,
+            collection_name=args.zotero_collection,
+            collection_target=args.zotero_target,
+        )
         if result.get("ok"):
             zotero_saved += 1
             row["zotero_status"] = str(result.get("status") or "saved")
@@ -573,7 +660,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
                 row.get("zotero_status", ""),
                 datetime.now().isoformat(timespec="seconds"),
                 row.get("access_status", ""),
-                "metadata only; PDF download intentionally disabled",
+                f"metadata only; PDF download intentionally disabled; Zotero collection={result.get('zotero_collection', args.zotero_collection)}",
             ])
         else:
             row["zotero_status"] = "pending"
@@ -588,13 +675,16 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     write_csv(run_dir / "已入库Zotero文献清单.csv", ["record_id", "title", "doi", "source", "url", "journal", "publication_year", "zotero_item_key", "zotero_status", "saved_at", "access_status", "notes"], zotero_rows)
     write_csv(run_dir / "待处理文献清单.csv", ["title", "doi", "source", "url", "reason", "next_action", "priority"], pending_rows)
 
+    collection_label = args.zotero_collection or args.zotero_target or "Zotero 当前选中位置"
     html = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>文献整理报告</title><body>
 <h1>文献整理报告</h1>
 <p>运行方式：DrissionPage 接管 9225 已登录浏览器；模式：Zotero 元数据入库，不下载 PDF。</p>
 <p>关键词：{args.query}</p>
 <p>年份：{args.year_from}-{args.year_to}</p>
-<p>候选：{len(results)}，尝试入库：{attempts}，成功/已存在：{zotero_saved}，待处理：{len(pending_rows)}</p>
-<p>说明：候选清单先保存；本流程不会下载全文或点击 PDF 下载按钮。Zotero 入库失败也会保留题名、地址、期刊、年份和失败原因。</p>
+<p>影响因子：{args.if_min or "不限制"}；IF 来源优先使用 ScienceDirect 页面上的 EasyScholar 标签。</p>
+<p>Zotero collection：{collection_label}</p>
+<p>候选：{len(results)}，符合入库条件：{len(import_candidates)}，尝试入库：{attempts}，成功/已存在：{zotero_saved}，待处理：{len(pending_rows)}</p>
+<p>说明：候选清单先保存；本流程不会下载全文或点击 PDF 下载按钮。Zotero 入库失败也会保留题名、地址、期刊、年份、影响因子和失败原因。</p>
 </body></html>"""
     (run_dir / "文献整理报告.html").write_text(html, encoding="utf-8")
     summary = {
@@ -604,10 +694,12 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "year_from": args.year_from,
         "year_to": args.year_to,
         "candidates": len(results),
+        "eligible_for_zotero": len(import_candidates),
         "attempted": attempts,
         "downloaded": 0,
         "zotero_saved": zotero_saved,
         "pending": len(pending_rows),
+        "zotero_collection": collection_label,
     }
     (internal_dir / "logs" / "sciencedirect_drission_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
@@ -631,6 +723,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--zotero-wait-seconds", type=int, default=90)
     parser.add_argument("--zotero-data-dir", default="")
+    parser.add_argument("--zotero-collection", default="science direct", help="Zotero collection name to save metadata into")
+    parser.add_argument("--zotero-target", default="", help="Optional Zotero connector target id such as C2")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     if args.query_file:
