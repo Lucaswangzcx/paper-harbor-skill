@@ -105,33 +105,20 @@ def search_url(query: str) -> str:
 
 
 def perform_search(tab, query: str) -> None:
-    """Search CNKI explicitly from the site UI before collecting results."""
-    tab.get("https://www.cnki.net/")
+    """Open the stable CNKI KNS result page for this query.
+
+    CNKI may route the home-page search box to scholar.cnki.net/home for
+    English queries. That page is a different "foreign database" portal and its
+    DOM is not the KNS result list that EasyScholar and this runner expect.
+    """
+    tab.get(search_url(query))
     tab.wait.doc_loaded()
-    time.sleep(1.5)
-    try:
-        js = """
-const query = %s;
-const input = document.querySelector('input[type="text"], input[placeholder*="检索"], input[placeholder*="搜索"]');
-if (input) {
-  input.focus();
-  input.value = query;
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-  input.dispatchEvent(new Event('change', { bubbles: true }));
-}
-const button = [...document.querySelectorAll('button, a')].find((el) => /检索|搜索/.test((el.innerText || el.textContent || '').trim()));
-if (button) {
-  button.click();
-  return true;
-}
-return false;
-""" % json.dumps(query)
-        clicked = tab.run_js(js)
-    except Exception:
-        clicked = False
-    if not clicked:
+    time.sleep(2.5)
+    current_url = str(getattr(tab, "url", "") or "").lower()
+    if "scholar.cnki.net/home" in current_url or "www.cnki.net" in current_url:
         tab.get(search_url(query))
-    tab.wait.doc_loaded()
+        tab.wait.doc_loaded()
+        time.sleep(2.5)
 
 
 def js_collect_results() -> str:
@@ -235,19 +222,21 @@ def apply_filters(rows: list[dict[str, str]], year_from: str, year_to: str, if_m
             if current_if is None:
                 row["priority"] = "中"
                 row["next_action"] = "pending IF verification; EasyScholar IF badge not visible"
-                continue
-            if current_if <= min_if:
+            elif current_if <= min_if:
                 row["priority"] = "低"
                 row["next_action"] = f"skip Zotero import; IF {current_if:g} does not exceed {min_if:g}"
-                continue
-        row["priority"] = "高" if current_if is not None else "中"
+            else:
+                row["priority"] = "高"
+                row["next_action"] = "save metadata to Zotero; no full-text download"
+        else:
+            row["priority"] = "高" if current_if is not None else "中"
+            row["next_action"] = "save metadata to Zotero; no full-text download"
         row["source"] = "CNKI"
         row["impact_factor"] = row.get("impact_factor", "")
         row["metric_year"] = row.get("metric_year", "")
         row["metric_source"] = row.get("metric_source", "")
         row["zotero_status"] = "not_attempted"
         row["zotero_item_key"] = ""
-        row["next_action"] = "save metadata to Zotero; no full-text download"
         filtered.append(row)
     return filtered
 
@@ -344,9 +333,27 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     zotero_saved = 0
     attempts = 0
     data_dir = locate_zotero_data_dir(args.zotero_data_dir)
-    max_attempts = min(int(args.max_attempts or args.limit), len(results))
+    importable_results = [row for row in results if row.get("priority") == "高"]
+    non_importable_results = [row for row in results if row.get("priority") != "高"]
+    for row in non_importable_results[: max(int(args.limit), 0)]:
+        reason = "IF missing or does not satisfy requested threshold"
+        if row.get("priority") == "中":
+            reason = "EasyScholar IF badge not visible; IF threshold cannot be verified"
+        elif row.get("priority") == "低":
+            reason = "Impact factor does not satisfy requested threshold"
+        pending_rows.append([
+            row.get("title", ""),
+            row.get("doi", ""),
+            "CNKI",
+            row.get("url", ""),
+            reason,
+            row.get("next_action", "manual review required"),
+            row.get("priority", "中"),
+        ])
 
-    for row in results[:max_attempts]:
+    max_attempts = min(int(args.max_attempts or args.limit), len(importable_results))
+
+    for row in importable_results[:max_attempts]:
         attempts += 1
         tab.get(row["url"])
         tab.wait.doc_loaded()
