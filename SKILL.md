@@ -153,18 +153,15 @@ The scaffold must contain:
 ```text
 00_先看我_文件说明.txt
 README_先看我.md
-下载报告.pdf
-下载报告.html
+文献整理报告.html
 文章地址总表.csv
 候选文献总表.csv
 高优先级文献.csv
 中优先级文献.csv
 低优先级文献.csv
 已入库Zotero文献清单.csv
-已下载文献清单.csv
 待处理文献清单.csv
 检索计划.md
-已下载全文/
 内部数据_一般不用打开/
 ```
 
@@ -191,7 +188,6 @@ README_先看我.md
    - `url`
    - `abstract`
    - `access_status`
-   - `download_status`
    - `zotero_status`
    - `zotero_item_key`
    - `next_action`
@@ -209,7 +205,7 @@ README_先看我.md
    - If Zotero is unavailable, keep the item in `待处理文献清单.csv`.
 11. Import up to the requested record count from high priority first, then medium if needed. The run cap is `50`; never parallelize imports.
 12. Update `已入库Zotero文献清单.csv` and `待处理文献清单.csv` after every article.
-13. Generate or update `下载报告.html`; keep `下载报告.pdf` as a summary PDF or a pointer to the HTML report if PDF rendering is unavailable.
+13. Generate or update `文献整理报告.html`.
 
 ## Failure Handling
 
@@ -219,7 +215,7 @@ Treat Zotero import failures as reportable states, not as silent errors.
 - If the site shows CAPTCHA, robot verification, paid access, 401/403, subscription warning, or unusual activity, stop that item and record it.
 - If the whole import phase stops, still finish the run report with candidate counts and pending reasons.
 - Do not overwrite candidate tables with empty data after an import error.
-- Do not mark a file as downloaded; the normal full-text download count is always zero.
+- Do not create full-text download folders or downloaded-file manifests in metadata-only runs.
 
 ## Site Notes
 
@@ -278,4 +274,4 @@ A run is complete when:
 - `检索计划.md` states the parsed requirements and site/port.
 - Candidate, address, Zotero-import, and pending CSV files are updated.
 - Zotero contains the saved metadata items or the pending CSV explains why import failed.
-- `下载报告.html` summarizes counts, filters, source site, and unresolved items.
+- `文献整理报告.html` summarizes counts, filters, source site, and unresolved items.

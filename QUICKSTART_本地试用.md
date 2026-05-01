@@ -37,14 +37,13 @@ python .\scripts\lit_download_assistant.py --site sciencedirect --keywords "soli
 中优先级文献.csv
 低优先级文献.csv
 已入库Zotero文献清单.csv
-已下载文献清单.csv
 待处理文献清单.csv
-下载报告.html
+文献整理报告.html
 检索计划.md
 内部数据_一般不用打开/
 ```
 
-`已下载文献清单.csv` 保留为空表，用于兼容旧输出结构；正常结果看 `已入库Zotero文献清单.csv`。
+正常结果看 `已入库Zotero文献清单.csv`；无法入库的条目看 `待处理文献清单.csv`。
 
 ## ScienceDirect 真实运行
 

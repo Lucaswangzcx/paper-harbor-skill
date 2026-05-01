@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create and maintain a literature download run directory."""
+"""Create and maintain a metadata-only literature screening directory."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ SITES = {
     },
 }
 
-HARD_DOWNLOAD_LIMIT = 50
+HARD_RECORD_LIMIT = 50
 
 ALIASES = {
     "webofscience": "wos",
@@ -77,7 +77,8 @@ CSV_HEADERS = {
         "url",
         "abstract",
         "access_status",
-        "download_status",
+        "zotero_status",
+        "zotero_item_key",
         "next_action",
         "notes",
     ],
@@ -93,7 +94,8 @@ CSV_HEADERS = {
         "source",
         "url",
         "access_status",
-        "download_status",
+        "zotero_status",
+        "zotero_item_key",
         "next_action",
         "notes",
     ],
@@ -109,7 +111,8 @@ CSV_HEADERS = {
         "source",
         "url",
         "access_status",
-        "download_status",
+        "zotero_status",
+        "zotero_item_key",
         "next_action",
         "notes",
     ],
@@ -125,19 +128,9 @@ CSV_HEADERS = {
         "source",
         "url",
         "access_status",
-        "download_status",
+        "zotero_status",
+        "zotero_item_key",
         "next_action",
-        "notes",
-    ],
-    "已下载文献清单.csv": [
-        "filename",
-        "title",
-        "doi",
-        "source",
-        "url",
-        "downloaded_at",
-        "license_or_access",
-        "sha256",
         "notes",
     ],
     "已入库Zotero文献清单.csv": [
@@ -313,8 +306,8 @@ def create_scaffold(args: argparse.Namespace) -> Path:
         raise SystemExit("Missing --keywords, or provide a prompt containing keywords.")
 
     requested_limit = args.limit or prompt_values.get("limit") or 20
-    limit = min(requested_limit, HARD_DOWNLOAD_LIMIT)
-    limit_capped = requested_limit > HARD_DOWNLOAD_LIMIT
+    limit = min(requested_limit, HARD_RECORD_LIMIT)
+    limit_capped = requested_limit > HARD_RECORD_LIMIT
     year_from = args.year_from if args.year_from is not None else prompt_values.get("year_from")
     year_to = args.year_to if args.year_to is not None else prompt_values.get("year_to")
     if_min = args.if_min if args.if_min is not None else prompt_values.get("if_min")
@@ -325,9 +318,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
     run_name = args.run_name or f"{now_stamp()}_{site_key}_{slugify(keywords)}"
     run_dir = out_root / run_name
     internal = run_dir / "内部数据_一般不用打开"
-    fulltexts = run_dir / "已下载全文"
     internal.mkdir(parents=True, exist_ok=True)
-    fulltexts.mkdir(parents=True, exist_ok=True)
     (internal / "logs").mkdir(exist_ok=True)
     (internal / "raw_exports").mkdir(exist_ok=True)
 
@@ -337,9 +328,9 @@ def create_scaffold(args: argparse.Namespace) -> Path:
         "port": site["port"],
         "start_url": site["url"],
         "keywords": keywords,
-        "download_count": limit,
-        "requested_download_count": requested_limit,
-        "hard_download_limit": HARD_DOWNLOAD_LIMIT,
+        "record_count": limit,
+        "requested_record_count": requested_limit,
+        "hard_record_limit": HARD_RECORD_LIMIT,
         "limit_capped": limit_capped,
         "year_from": year_from,
         "year_to": year_to,
@@ -348,11 +339,11 @@ def create_scaffold(args: argparse.Namespace) -> Path:
         "created_at": dt.datetime.now().isoformat(timespec="seconds"),
         "login_command": login_command(site_key),
         "safety": {
-            "scope": "Only download content available through the user's logged-in account or open access.",
+            "scope": "Metadata-only literature screening and Zotero import. No full-text download.",
             "hard_rules": [
-                f"Never exceed {HARD_DOWNLOAD_LIMIT} requested downloads in one run.",
-                "Prefer open-access and visibly institution-authorized full text.",
-                "Do not download in parallel; process one item at a time.",
+                f"Never exceed {HARD_RECORD_LIMIT} requested records in one run.",
+                "Do not download PDF/HTML/XML full text.",
+                "Do not process records in parallel; import one Zotero metadata item at a time.",
                 "Do not bypass paywalls, CAPTCHA, subscription checks, rate limits, browser warnings, hidden APIs, mirrors, or unofficial copies.",
                 "If access is unclear or blocked, record the item as pending instead of trying to circumvent.",
             ],
@@ -360,7 +351,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
     }
 
     write_text(internal / "config.json", json.dumps(config, ensure_ascii=False, indent=2))
-    write_text(internal / "download_state.json", json.dumps({"downloaded": [], "pending": []}, ensure_ascii=False, indent=2))
+    write_text(internal / "zotero_import_state.json", json.dumps({"imported": [], "pending": []}, ensure_ascii=False, indent=2))
     write_text(
         internal / "journal_impact_factors.csv",
         "journal,issn,eissn,impact_factor,year,source,notes\n",
@@ -511,8 +502,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 </body>
 </html>
 """
-    write_text(run_dir / "下载报告.html", html)
-    (run_dir / "下载报告.pdf").write_bytes(minimal_pdf_bytes("Literature Download Report"))
+    write_text(run_dir / "文献整理报告.html", html)
 
     checksum = hashlib.sha256(json.dumps(config, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
     write_text(internal / "run_checksum.sha256", checksum + "\n")
@@ -520,9 +510,10 @@ def create_scaffold(args: argparse.Namespace) -> Path:
         internal / "mandatory_policy.json",
         json.dumps(
             {
-                "hard_download_limit": HARD_DOWNLOAD_LIMIT,
-                "serial_downloads_only": True,
-                "prefer_open_access_or_institutional_access": True,
+                "hard_record_limit": HARD_RECORD_LIMIT,
+                "serial_zotero_import_only": True,
+                "metadata_only": True,
+                "no_full_text_download": True,
                 "no_bypass": True,
                 "blocked_items_go_to_pending_csv": True,
             },
@@ -544,7 +535,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--year-to", type=int, help="End publication year")
     parser.add_argument("--if-min", type=float, help="Minimum impact factor")
     parser.add_argument("--if-max", type=float, help="Maximum impact factor")
-    parser.add_argument("--limit", type=int, help="Download count")
+    parser.add_argument("--limit", type=int, help="Record count to screen/import")
     parser.add_argument("--out", help="Output root directory")
     parser.add_argument("--run-name", help="Exact run folder name")
     return parser
@@ -554,7 +545,7 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
     run_dir = create_scaffold(args)
-    print(f"Created literature download run directory:\n{run_dir}")
+    print(f"Created literature metadata run directory:\n{run_dir}")
     print("\nNext step: open the browser command in README_先看我.md, log in, then continue the search.")
     return 0
 

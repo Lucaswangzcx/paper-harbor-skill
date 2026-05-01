@@ -217,7 +217,6 @@ def save_candidate_tables(run_dir: Path, rows: list[dict[str, str]]) -> None:
         "url",
         "abstract",
         "access_status",
-        "download_status",
         "zotero_status",
         "zotero_item_key",
         "next_action",
@@ -238,7 +237,6 @@ def save_candidate_tables(run_dir: Path, rows: list[dict[str, str]]) -> None:
             row.get("url", ""),
             "",
             row.get("access_status", ""),
-            row.get("download_status", "not_attempted"),
             row.get("zotero_status", "not_attempted"),
             row.get("zotero_item_key", ""),
             row.get("next_action", "try official full issue selector or View PDF download"),
@@ -277,7 +275,6 @@ def save_candidate_tables(run_dir: Path, rows: list[dict[str, str]]) -> None:
         "source",
         "url",
         "access_status",
-        "download_status",
         "zotero_status",
         "zotero_item_key",
         "next_action",
@@ -300,7 +297,6 @@ def save_candidate_tables(run_dir: Path, rows: list[dict[str, str]]) -> None:
                     "ScienceDirect",
                     row.get("url", ""),
                     row.get("access_status", ""),
-                    row.get("download_status", "not_attempted"),
                     row.get("zotero_status", "not_attempted"),
                     row.get("zotero_item_key", ""),
                     row.get("next_action", "try official full issue selector or View PDF download"),
@@ -499,16 +495,12 @@ def try_download_with_zotero(tab, row: dict[str, str], info: dict[str, str], dow
 
 def run(args: argparse.Namespace) -> dict[str, object]:
     run_dir = Path(args.out).resolve()
-    download_dir = run_dir / "已下载全文"
     internal_dir = run_dir / "内部数据_一般不用打开"
-    download_dir.mkdir(parents=True, exist_ok=True)
     (internal_dir / "logs").mkdir(parents=True, exist_ok=True)
     (internal_dir / "raw_exports").mkdir(parents=True, exist_ok=True)
 
     browser = connect_browser(args.port)
     tab = open_tab(browser)
-    tab.set.download_path(str(download_dir))
-    tab.set.when_download_file_exists("rename")
     tab.set.timeouts(12)
 
     url = search_url(args.query, str(args.year_from or ""), str(args.year_to or ""))
@@ -529,7 +521,6 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         access = row.get("access_status", "")
         row["source"] = "ScienceDirect"
         row["priority"] = "中" if re.search(r"open access|view pdf|full text", access, re.I) else "低"
-        row["download_status"] = "not_downloaded_by_design"
         row["zotero_status"] = "not_attempted"
         row["zotero_item_key"] = ""
         row["next_action"] = "save metadata to Zotero; no PDF download"
@@ -591,12 +582,10 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 
         save_candidate_tables(run_dir, results)
         write_csv(run_dir / "已入库Zotero文献清单.csv", ["record_id", "title", "doi", "source", "url", "journal", "publication_year", "zotero_item_key", "zotero_status", "saved_at", "access_status", "notes"], zotero_rows)
-        write_csv(run_dir / "已下载文献清单.csv", ["filename", "title", "doi", "source", "url", "downloaded_at", "license_or_access", "sha256", "notes"], [])
         write_csv(run_dir / "待处理文献清单.csv", ["title", "doi", "source", "url", "reason", "next_action", "priority"], pending_rows)
 
     save_candidate_tables(run_dir, results)
     write_csv(run_dir / "已入库Zotero文献清单.csv", ["record_id", "title", "doi", "source", "url", "journal", "publication_year", "zotero_item_key", "zotero_status", "saved_at", "access_status", "notes"], zotero_rows)
-    write_csv(run_dir / "已下载文献清单.csv", ["filename", "title", "doi", "source", "url", "downloaded_at", "license_or_access", "sha256", "notes"], [])
     write_csv(run_dir / "待处理文献清单.csv", ["title", "doi", "source", "url", "reason", "next_action", "priority"], pending_rows)
 
     html = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>文献整理报告</title><body>
@@ -607,7 +596,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 <p>候选：{len(results)}，尝试入库：{attempts}，成功/已存在：{zotero_saved}，待处理：{len(pending_rows)}</p>
 <p>说明：候选清单先保存；本流程不会下载全文或点击 PDF 下载按钮。Zotero 入库失败也会保留题名、地址、期刊、年份和失败原因。</p>
 </body></html>"""
-    (run_dir / "下载报告.html").write_text(html, encoding="utf-8")
+    (run_dir / "文献整理报告.html").write_text(html, encoding="utf-8")
     summary = {
         "runner": "drission",
         "download_method": "metadata_only",

@@ -79,7 +79,7 @@ python .\scripts\sciencedirect_drission_run.py --port 9225 --query-file .\exampl
 
 ## 开源与隐私说明
 
-本仓库不包含账号、Cookie、PDF 文件、Zotero 数据库、下载结果或机构访问凭证。`runs/`、`已下载全文/`、`内部数据_一般不用打开/`、`.sqlite`、`.pdf`、`.csv` 等运行产物默认被 `.gitignore` 排除。
+本仓库不包含账号、Cookie、PDF 文件、Zotero 数据库、下载结果或机构访问凭证。`runs/`、`内部数据_一般不用打开/`、`.sqlite`、`.pdf`、`.csv` 等运行产物默认被 `.gitignore` 排除。
 
 使用者必须自行登录数据库网站和 Zotero。Paper Harbor 不输入密码、不解决验证码、不绕过付费墙、不使用盗版镜像。
 
