@@ -356,7 +356,10 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             row["zotero_status"] = "pending"
             row["next_action"] = "site verification shown; user should resolve manually before rerun"
             pending_rows.append([row["title"], row.get("doi", ""), "CNKI", row["url"], "site verification detected", row["next_action"], row.get("priority", "中")])
-            break
+            save_candidate_tables(run_dir, results)
+            write_csv(run_dir / "已入库Zotero文献清单.csv", ["record_id", "title", "doi", "source", "url", "journal", "publication_year", "zotero_item_key", "zotero_status", "saved_at", "access_status", "notes"], zotero_rows)
+            write_csv(run_dir / "待处理文献清单.csv", ["title", "doi", "source", "url", "reason", "next_action", "priority"], pending_rows)
+            continue
         info = tab.run_js(js_article_metadata()) or {}
         title, generic_page_title = prefer_cnki_title(row.get("title", ""), str(info.get("title") or ""))
         row["title"] = title
