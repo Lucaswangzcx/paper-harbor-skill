@@ -1,77 +1,79 @@
 # Paper Harbor Skill
 
-Paper Harbor is a Codex skill for collecting literature metadata from Web of Science, ScienceDirect, and CNKI, then saving the selected records into Zotero.
+Paper Harbor 是一个 Codex skill，用来从 Web of Science、ScienceDirect 和知网整理文献信息，并把筛选后的条目保存到 Zotero。
 
-It is not a PDF downloader. The skill does not click PDF buttons, download full issues, solve CAPTCHAs, bypass paywalls, or use unofficial mirrors. It keeps the workflow focused on search results, article pages, CSV reports, and Zotero metadata records.
+它现在不是下载器。它不会点 PDF 下载、不会下载整期、不会处理验证码、不会绕过付费墙，也不会去找非官方来源。它做的事情很简单：检索、记录、生成表格、把元数据放进 Zotero。
 
-## What It Does
+## 能做什么
 
-- Searches one of the supported literature sites through a browser session you logged into yourself.
-- Collects article title, journal, year, DOI, URL, access signal, and related notes.
-- Saves candidate tables and priority lists as CSV files.
-- Imports matching records into Zotero as metadata-only journal article items.
-- Keeps failed or blocked records in a pending CSV instead of hiding them.
+- 用你已经登录好的浏览器检索文献网站。
+- 记录题名、期刊、年份、DOI、文章地址、访问状态等信息。
+- 生成候选表、地址表、高中低优先级表。
+- 把符合条件的文献作为 metadata-only 条目保存到 Zotero。
+- 如果某条文献无法处理，会写进待处理清单，不会悄悄跳过。
 
-Supported browser debug ports:
+默认端口：
 
-| Site | Port |
+| 网站 | 端口 |
 |---|---:|
 | Web of Science | `9224` |
 | ScienceDirect | `9225` |
-| CNKI | `9226` |
+| 知网/CNKI | `9226` |
 
-## Install
+## 安装依赖
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-Install this folder as a Codex skill named `paper-harbor`, then restart Codex or start a new session.
+把这个文件夹安装到 Codex skills 目录，技能名建议用 `paper-harbor`。安装后重启 Codex，或者开启一个新会话。
 
-## First-Time Setup
+## 第一次使用
 
-Open Zotero Desktop before running an import:
+先打开 Zotero Desktop，然后检查本地接口：
 
 ```powershell
 python .\scripts\zotero_bridge.py doctor
 ```
 
-If Zotero is not ready, this helper opens the official Zotero setup pages:
+如果 Zotero 还没装好，可以运行这个脚本打开官方安装页面：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\open_zotero_setup.ps1
 ```
 
-Then open the site browser profile and log in manually. For ScienceDirect:
+然后打开对应网站的浏览器窗口并手动登录。比如 ScienceDirect：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\open_lit_browser.ps1 -Site sciencedirect
 python .\scripts\browser_port_check.py --site sciencedirect
 ```
 
-## Prompt Example
+## 用法示例
+
+自然语言触发：
 
 ```text
 Use skill paper-harbor 帮我在“ScienceDirect”整理“solid electrolyte interphase”的“2021-2026”文献，“影响因子大于5”，“先整理25篇”，保存到 Zotero 并输出到“D:\papers\sei”
 ```
 
-## Script Example
+也可以直接跑脚本。
 
-Create an output folder:
+先创建输出目录：
 
 ```powershell
 python .\scripts\lit_download_assistant.py --site sciencedirect --keywords "solid electrolyte interphase" --year-from 2021 --year-to 2026 --if-min 5 --limit 25 --out ".\runs"
 ```
 
-Run the ScienceDirect metadata import after the `9225` browser is logged in:
+确认 `9225` 浏览器已经登录后，开始整理并入库 Zotero：
 
 ```powershell
 python .\scripts\sciencedirect_drission_run.py --port 9225 --query "solid electrolyte interphase" --year-from 2021 --year-to 2026 --if-min 5 --limit 25 --out ".\runs\sei"
 ```
 
-## Output
+## 输出目录
 
-A run directory contains files like:
+一次运行会生成类似这样的目录：
 
 ```text
 00_先看我_文件说明.txt
@@ -88,26 +90,31 @@ README_先看我.md
 内部数据_一般不用打开/
 ```
 
-`已入库Zotero文献清单.csv` is the main success log. `待处理文献清单.csv` records items that could not be imported or needed manual attention.
+主要看两个文件：
 
-## Impact Factors
+- `已入库Zotero文献清单.csv`：已经保存到 Zotero 的条目。
+- `待处理文献清单.csv`：没有成功处理、需要人工确认的条目。
 
-ScienceDirect search results usually do not include impact factors. Paper Harbor will not invent them.
+## 关于影响因子
 
-If you want reliable impact-factor filtering, add a trusted CSV at:
+ScienceDirect 这类页面通常不会直接给影响因子，所以 Paper Harbor 不会自己编一个。
+
+如果需要按影响因子筛选，可以放一个可信来源的表到：
 
 ```text
 内部数据_一般不用打开/journal_impact_factors.csv
 ```
 
-Recommended columns:
+推荐表头：
 
 ```csv
 journal,issn,eissn,impact_factor,year,source,notes
 ```
 
-## Privacy And Safety
+没有这个表时，skill 仍然会整理文献并保存到 Zotero，只是不会把“影响因子大于 5”当成已经核验过的条件。
 
-This repository does not include accounts, cookies, Zotero databases, PDFs, CSV run outputs, browser profiles, or institution credentials. Runtime outputs such as `runs/`, `内部数据_一般不用打开/`, `.sqlite`, `.pdf`, and `.csv` files are ignored by default.
+## 隐私和边界
 
-Users log in themselves. Paper Harbor does not enter passwords, solve CAPTCHAs, bypass access controls, or fetch papers from unofficial sources.
+这个仓库不包含账号、Cookie、Zotero 数据库、PDF、运行结果、浏览器 profile 或机构访问凭证。`runs/`、`内部数据_一般不用打开/`、`.sqlite`、`.pdf`、`.csv` 等运行产物默认不会进仓库。
+
+使用者自己登录网站和 Zotero。Paper Harbor 不输入密码，不解验证码，不绕过权限，也不从非官方来源获取论文。
