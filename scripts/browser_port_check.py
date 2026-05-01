@@ -11,11 +11,6 @@ import urllib.request
 
 
 SITES = {
-    "wos": {
-        "port": 9224,
-        "name": "Web of Science",
-        "url": "https://www.webofscience.com/wos/woscc/basic-search",
-    },
     "sciencedirect": {
         "port": 9225,
         "name": "ScienceDirect",
@@ -29,9 +24,6 @@ SITES = {
 }
 
 ALIASES = {
-    "webofscience": "wos",
-    "web-of-science": "wos",
-    "web_of_science": "wos",
     "science-direct": "sciencedirect",
     "science_direct": "sciencedirect",
     "elsevier": "sciencedirect",
@@ -55,7 +47,7 @@ def fetch_json(url: str, timeout: float = 2.0) -> object:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--site", required=True, help="wos, sciencedirect, or cnki")
+    parser.add_argument("--site", required=True, help="sciencedirect or cnki")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON")
     args = parser.parse_args()
 

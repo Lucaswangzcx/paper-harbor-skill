@@ -1,15 +1,10 @@
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet("wos", "sciencedirect", "cnki")]
+  [ValidateSet("sciencedirect", "cnki")]
   [string]$Site
 )
 
 $sites = @{
-  "wos" = @{
-    Port = 9224
-    Url = "https://www.webofscience.com/wos/woscc/basic-search"
-    Profile = "wos"
-  }
   "sciencedirect" = @{
     Port = 9225
     Url = "https://www.sciencedirect.com/search"

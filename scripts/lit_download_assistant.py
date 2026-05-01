@@ -15,12 +15,6 @@ from typing import Any
 
 
 SITES = {
-    "wos": {
-        "name": "Web of Science",
-        "port": 9224,
-        "url": "https://www.webofscience.com/wos/woscc/basic-search",
-        "profile": "wos",
-    },
     "sciencedirect": {
         "name": "ScienceDirect",
         "port": 9225,
@@ -38,10 +32,6 @@ SITES = {
 HARD_RECORD_LIMIT = 50
 
 ALIASES = {
-    "webofscience": "wos",
-    "web-of-science": "wos",
-    "web_of_science": "wos",
-    "wos": "wos",
     "science-direct": "sciencedirect",
     "science_direct": "sciencedirect",
     "sciencedirect": "sciencedirect",
@@ -178,9 +168,6 @@ def parse_prompt(prompt: str) -> dict[str, Any]:
 
     quoted = re.findall(r"[\"“](.+?)[\"”]", text)
     site_words = {
-        "web of science",
-        "webofscience",
-        "wos",
         "science direct",
         "sciencedirect",
         "elsevier",
@@ -300,7 +287,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 
     site_key = normalize_site(args.site) or prompt_values.get("site")
     if not site_key:
-        raise SystemExit("Missing --site. Choose wos, sciencedirect, or cnki.")
+        raise SystemExit("Missing --site. Choose sciencedirect or cnki.")
 
     keywords = args.keywords or prompt_values.get("keywords")
     if not keywords:
@@ -316,7 +303,6 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 
     site = SITES[site_key]
     default_collection = {
-        "wos": "web of science",
         "sciencedirect": "science direct",
         "cnki": "中国知网",
     }.get(site_key, site["name"])
@@ -415,7 +401,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 2. 当前浏览器里的 Zotero Connector
 3. 当前浏览器里的 EasyScholar
 
-并在 Zotero 里创建/选中 collection：`{zotero_collection}`。如果页面支持，EasyScholar 会在检索结果旁显示 IF，Paper Harbor 会读取这些可见标签；Web of Science、ScienceDirect 和知网都按同样的提醒和流程执行。
+并在 Zotero 里创建/选中 collection：`{zotero_collection}`。如果页面支持，EasyScholar 会在检索结果旁显示 IF，Paper Harbor 会读取这些可见标签；ScienceDirect 和知网都按同样的提醒和流程执行。
 
 ## 合规说明
 
@@ -555,7 +541,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prompt", help="Optional natural-language prompt to parse")
     parser.add_argument("--prompt-file", help="Read the natural-language prompt from a UTF-8 text file")
-    parser.add_argument("--site", help="wos, sciencedirect, or cnki")
+    parser.add_argument("--site", help="sciencedirect or cnki")
     parser.add_argument("--keywords", help="Literature keywords")
     parser.add_argument("--year-from", type=int, help="Start publication year")
     parser.add_argument("--year-to", type=int, help="End publication year")

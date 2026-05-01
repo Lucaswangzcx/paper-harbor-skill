@@ -1,13 +1,12 @@
 ---
 name: paper-harbor
-description: 文献港。自动化检索、筛选并把文献元数据保存到 Zotero。适用于用户要从 Web of Science、ScienceDirect 或中国知网按关键词、影响因子、出版时间和数量生成候选清单、优先级清单、Zotero 入库清单和可追踪输出目录。默认不下载 PDF/HTML 全文，禁止绕过登录、付费墙、验证码或机构权限限制。
+description: 文献港。自动化检索、筛选并把文献元数据保存到 Zotero。适用于用户要从 ScienceDirect 或中国知网按关键词、影响因子、出版时间和数量生成候选清单、优先级清单、Zotero 入库清单和可追踪输出目录。默认不下载 PDF/HTML 全文，禁止绕过登录、付费墙、验证码或机构权限限制。
 ---
 
 # Paper Harbor
 
-Use this skill when the user asks to search for papers, screen literature, and save metadata-only records to Zotero from one or more of these sites:
+Use this skill when the user asks to search for papers, screen literature, and save metadata-only records to Zotero from one of these sites:
 
-- Web of Science: browser debugging port `9224`
 - ScienceDirect: browser debugging port `9225`
 - 中国知网/CNKI: browser debugging port `9226`
 
@@ -19,11 +18,11 @@ For first use, guide the user to install:
 
 - Zotero Desktop
 - Zotero Connector in the same browser profile used by the site port
-- EasyScholar in the same browser profile, so ScienceDirect/Web of Science/CNKI result pages can display journal ranking and IF badges when EasyScholar supports that page
+- EasyScholar in the same browser profile, so ScienceDirect/CNKI result pages can display journal ranking and IF badges when EasyScholar supports that page
 
 For every site, remind the user to open the matching browser with the default browser launcher, log in to EasyScholar in that browser profile, and refresh the result page before relying on IF badges.
 
-The user should also create a Zotero collection for the run before import, usually named after the site or project, for example `science direct`, `web of science`, or `中国知网`. Paper Harbor should save metadata into that collection whenever Zotero Connector exposes it.
+The user should also create a Zotero collection for the run before import, usually named after the site or project, for example `science direct` or `中国知网`. Paper Harbor should save metadata into that collection whenever Zotero Connector exposes it.
 
 ## Prompt Template
 
@@ -46,7 +45,7 @@ Use skill paper-harbor 帮我在“中国知网”整理“钙钛矿太阳能电
 ## End-to-End Behavior
 
 The user should experience this as one complete workflow, not separate `collect` and `download` commands. The second phase is Zotero metadata import, not full-text download.
-Web of Science, ScienceDirect, and CNKI should all follow the same overall pipeline: open the logged-in browser, create the output directory, search the official site UI first, inspect the results page with EasyScholar badges visible, collect candidate metadata from the results page, screen by the requested year/IF/count rules, then import into Zotero one item at a time. Only the site-specific selectors and metadata fields differ.
+ScienceDirect and CNKI follow the same overall pipeline: open the logged-in browser, create the output directory, search the official site UI first, inspect the results page with EasyScholar badges visible, collect candidate metadata from the results page, screen by the requested year/IF/count rules, then import into Zotero one item at a time. Only the site-specific selectors and metadata fields differ.
 
 For every run:
 
@@ -80,7 +79,7 @@ Extract these fields from the user's prompt. If a field is missing, use the defa
 
 | Field | Required | Default |
 |---|---:|---|
-| `site` | Yes | Ask user to choose: `wos`, `sciencedirect`, `cnki` |
+| `site` | Yes | Ask user to choose: `sciencedirect` or `cnki` |
 | `keywords` | Yes | Ask user |
 | `impact_factor` | No | No IF filter; keep IF blank unless available from a user-supplied trusted table or official page |
 | `publication_time` | No | No date filter |
@@ -90,19 +89,12 @@ Extract these fields from the user's prompt. If a field is missing, use the defa
 
 Accept site aliases:
 
-- `web of science`, `wos`, `webofscience` -> `wos`
 - `science direct`, `sciencedirect`, `elsevier` -> `sciencedirect`
 - `中国知网`, `知网`, `cnki` -> `cnki`
 
 ## Login Ports
 
 Before searching, tell the user to open the matching browser and log in:
-
-### Web of Science
-
-```powershell
-.\scripts\open_lit_browser.ps1 -Site wos
-```
 
 ### ScienceDirect
 
@@ -121,7 +113,6 @@ Then ask the user to finish login in that browser window. Do not continue to sea
 You may check whether the debugging port is reachable with:
 
 ```powershell
-python scripts/browser_port_check.py --site wos
 python scripts/browser_port_check.py --site sciencedirect
 python scripts/browser_port_check.py --site cnki
 ```
@@ -162,7 +153,7 @@ Proceed only when doctor can see `127.0.0.1:23119` and a local Zotero data direc
 Create the output directory before searching. Use:
 
 ```powershell
-python scripts/lit_download_assistant.py --site wos --keywords "your keywords" --year-from 2021 --year-to 2026 --if-min 5 --limit 20 --out ".\runs"
+python scripts/lit_download_assistant.py --site sciencedirect --keywords "your keywords" --year-from 2021 --year-to 2026 --if-min 5 --limit 20 --out ".\runs"
 ```
 
 The scaffold must contain:
@@ -236,12 +227,6 @@ Treat Zotero import failures as reportable states, not as silent errors.
 - Do not create full-text download folders or downloaded-file manifests in metadata-only runs.
 
 ## Site Notes
-
-### Web of Science
-
-- Use it primarily for discovery, metadata, DOI, cited/reference context, and export links.
-- Web of Science often does not host PDFs directly. Use it for metadata and official links, not full-text downloads.
-- Do not assume impact factor from Web of Science search results unless an official Journal Citation Reports view or a user-provided trusted IF table is available.
 
 ### ScienceDirect
 
