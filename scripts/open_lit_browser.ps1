@@ -45,6 +45,7 @@ Write-Host "Opening default browser:"
 Write-Host $browser
 Write-Host "Remote debugging port: $($config.Port)"
 Write-Host "Profile: $profile"
+Write-Host "Reminder: after the site opens, sign in to the site and EasyScholar in this same default browser profile."
 
 Start-Process -FilePath $browser -ArgumentList @(
   "--remote-debugging-port=$($config.Port)",

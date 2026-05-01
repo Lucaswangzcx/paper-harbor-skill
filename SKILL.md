@@ -21,6 +21,8 @@ For first use, guide the user to install:
 - Zotero Connector in the same browser profile used by the site port
 - EasyScholar in the same browser profile, so ScienceDirect/Web of Science/CNKI result pages can display journal ranking and IF badges when EasyScholar supports that page
 
+For every site, remind the user to open the matching browser with the default browser launcher, log in to EasyScholar in that browser profile, and refresh the result page before relying on IF badges.
+
 The user should also create a Zotero collection for the run before import, usually named after the site or project, for example `science direct`, `web of science`, or `中国知网`. Paper Harbor should save metadata into that collection whenever Zotero Connector exposes it.
 
 ## Prompt Template
@@ -44,6 +46,7 @@ Use skill paper-harbor 帮我在“中国知网”整理“钙钛矿太阳能电
 ## End-to-End Behavior
 
 The user should experience this as one complete workflow, not separate `collect` and `download` commands. The second phase is Zotero metadata import, not full-text download.
+Web of Science, ScienceDirect, and CNKI should all follow the same overall pipeline: open the logged-in browser, create the output directory, collect candidate metadata, then import into Zotero one item at a time. Only the site-specific selectors and metadata fields differ.
 
 For every run:
 
@@ -250,6 +253,7 @@ Treat Zotero import failures as reportable states, not as silent errors.
 ### CNKI
 
 - Use the CNKI search UI for metadata and official article pages only.
+- Follow the same pipeline as ScienceDirect: open the logged-in CNKI browser, create the output directory, collect candidate metadata, then import into Zotero one item at a time.
 - Do not bypass institutional or personal access restrictions.
 - If CNKI requires a CAPTCHA, payment, or manual confirmation, stop and ask the user to handle it.
 

@@ -289,12 +289,7 @@ def minimal_pdf_bytes(title: str) -> bytes:
 
 def login_command(site_key: str) -> str:
     site = SITES[site_key]
-    return (
-        'Start-Process chrome.exe -ArgumentList @('
-        f'"--remote-debugging-port={site["port"]}",'
-        f'"--user-data-dir=$env:LOCALAPPDATA\\CodexLitProfiles\\{site["profile"]}",'
-        f'"{site["url"]}")'
-    )
+    return f'.\\scripts\\open_lit_browser.ps1 -Site {site_key}'
 
 
 def create_scaffold(args: argparse.Namespace) -> Path:
@@ -404,13 +399,13 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 
 ## 先登录
 
-请在 PowerShell 里打开对应浏览器，然后在弹出的浏览器窗口中手动登录：
+请在 PowerShell 里打开对应默认浏览器，然后在弹出的浏览器窗口中手动登录站点，再登录 EasyScholar：
 
 ```powershell
 {login_command(site_key)}
 ```
 
-登录完成后，再让 Codex 继续检索和 Zotero 入库。
+登录完成后，刷新结果页，确认 EasyScholar 的 IF 标签可见，再让 Codex 继续检索和 Zotero 入库。
 
 ## 首次运行准备
 
@@ -420,7 +415,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 2. 当前浏览器里的 Zotero Connector
 3. 当前浏览器里的 EasyScholar
 
-并在 Zotero 里创建/选中 collection：`{zotero_collection}`。如果 ScienceDirect 页面支持，EasyScholar 会在检索结果旁显示 IF，Paper Harbor 会读取这些可见标签。
+并在 Zotero 里创建/选中 collection：`{zotero_collection}`。如果页面支持，EasyScholar 会在检索结果旁显示 IF，Paper Harbor 会读取这些可见标签；Web of Science、ScienceDirect 和知网都按同样的提醒和流程执行。
 
 ## 合规说明
 
@@ -471,17 +466,18 @@ Zotero 目录：{zotero_collection}
 
 ## 执行步骤
 
-1. 用户打开上述浏览器并完成登录。
-2. Codex 检查端口是否可访问。
-3. Codex 检查 Zotero Desktop、Zotero Connector、EasyScholar 和 Zotero collection。
-4. 在官方网站 UI 中检索关键词并套用出版时间筛选。
-5. 收集候选文献、文章地址、DOI、期刊、年份、摘要、可访问状态。
-6. 如果页面显示 EasyScholar IF 标签，读取并写入影响因子字段；如果没有显示，先停在候选层，提示用户登录 EasyScholar 并刷新页面后再重新运行。
-7. 根据主题相关性、年份、可访问性和可信影响因子数据分为高/中/低优先级。
-8. 先保存候选清单，再从候选清单串行写入 Zotero 的 `{zotero_collection}`。
-9. 不打开下载完整期刊/Download full issue，不点击 View PDF 或 Download PDF。
-10. 从高优先级开始保存 Zotero 元数据，直到达到数量要求或无更多匹配文献。
-9. 更新 CSV 清单和文献整理报告。
+1. 用户打开上述默认浏览器并完成站点登录。
+2. 用户在同一个浏览器里登录 EasyScholar，并刷新结果页确认 IF 标签可见。
+3. Codex 检查端口是否可访问。
+4. Codex 检查 Zotero Desktop、Zotero Connector、EasyScholar 和 Zotero collection。
+5. 在官方网站 UI 中检索关键词并套用出版时间筛选。
+6. 收集候选文献、文章地址、DOI、期刊、年份、摘要、可访问状态。
+7. 如果页面显示 EasyScholar IF 标签，读取并写入影响因子字段；如果没有显示，先停在候选层，提示用户登录 EasyScholar 并刷新页面后再重新运行。
+8. 根据主题相关性、年份、可访问性和可信影响因子数据分为高/中/低优先级。
+9. 先保存候选清单，再从候选清单串行写入 Zotero 的 `{zotero_collection}`。
+10. 不打开下载完整期刊/Download full issue，不点击 View PDF 或 Download PDF。
+11. 从高优先级开始保存 Zotero 元数据，直到达到数量要求或无更多匹配文献。
+12. 更新 CSV 清单和文献整理报告。
 
 ## 影响因子规则
 
@@ -577,7 +573,7 @@ def main() -> int:
     args = parser.parse_args()
     run_dir = create_scaffold(args)
     print(f"Created literature metadata run directory:\n{run_dir}")
-    print("\nNext step: open the browser command in README_先看我.md, log in, then continue the search.")
+    print("\nNext step: open the default-browser command in README_先看我.md, log in to the site and EasyScholar, then continue the search.")
     return 0
 
 
