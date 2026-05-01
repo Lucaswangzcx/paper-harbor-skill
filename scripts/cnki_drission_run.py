@@ -48,6 +48,9 @@ CANDIDATE_HEADERS = [
     "notes",
 ]
 
+MAX_SCAN_RECORDS = 50
+MAX_RESULT_PAGES = 5
+
 
 def write_csv(path: Path, headers: list[str], rows: list[list[str]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -159,6 +162,23 @@ for (const tr of rows) {
   });
 }
 return items;
+"""
+
+
+def js_click_next_page() -> str:
+    return r"""
+const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
+const controls = [...document.querySelectorAll('a, button, span')];
+const next = controls.find((el) => {
+  const text = clean(el.innerText || el.textContent || el.getAttribute('title') || el.getAttribute('aria-label'));
+  const cls = `${el.className || ''}`.toLowerCase();
+  const disabled = el.disabled || /disabled|disable|unavailable/.test(cls) || el.getAttribute('aria-disabled') === 'true';
+  if (disabled) return false;
+  return /下一页|下页|next/i.test(text) || text === '>' || /next/.test(cls);
+});
+if (!next) return false;
+next.click();
+return true;
 """
 
 
@@ -299,25 +319,55 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     tab.set.timeouts(12)
     perform_search(tab, args.query)
 
-    raw_results = []
-    for _ in range(12):
-        time.sleep(2)
-        raw_results = tab.run_js(js_collect_results()) or []
-        if raw_results:
+    target_count = max(int(args.limit), 0)
+    scan_cap = min(MAX_SCAN_RECORDS, max(target_count * 5, target_count, 20))
+    raw_results: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+    stopped_reason = ""
+
+    def add_page_results(page_rows: list[dict[str, str]]) -> None:
+        for row in page_rows:
+            key = row.get("url") or row.get("title", "")
+            if not key or key in seen_urls:
+                continue
+            seen_urls.add(key)
+            raw_results.append(row)
+
+    for page_index in range(MAX_RESULT_PAGES):
+        page_rows = []
+        for _ in range(12):
+            time.sleep(2)
+            page_rows = tab.run_js(js_collect_results()) or []
+            if page_rows:
+                break
+            text = tab.run_js('return (document.body && document.body.innerText || "").slice(0, 2000)') or ""
+            if re.search(r"验证码|安全验证|异常|captcha|robot|verify", text, re.I):
+                stopped_reason = "site verification or unusual activity detected"
+                break
+        add_page_results(page_rows)
+        screened_so_far = apply_filters(raw_results, str(args.year_from or ""), str(args.year_to or ""), str(args.if_min or ""))
+        importable_so_far = [row for row in screened_so_far if row.get("priority") == "高"]
+        if len(importable_so_far) >= target_count or len(raw_results) >= scan_cap or stopped_reason:
             break
-        text = tab.run_js('return (document.body && document.body.innerText || "").slice(0, 2000)') or ""
-        if re.search(r"验证码|安全验证|异常|captcha|robot|verify", text, re.I):
+        clicked_next = bool(tab.run_js(js_click_next_page()))
+        if not clicked_next:
+            stopped_reason = "no more CNKI result pages found"
             break
-    if not raw_results:
+        tab.wait.doc_loaded()
+        time.sleep(2.5)
+
+    if not raw_results and not stopped_reason:
         tab.get(search_url(args.query))
         tab.wait.doc_loaded()
         for _ in range(12):
             time.sleep(2)
-            raw_results = tab.run_js(js_collect_results()) or []
-            if raw_results:
+            page_rows = tab.run_js(js_collect_results()) or []
+            if page_rows:
+                add_page_results(page_rows)
                 break
             text = tab.run_js('return (document.body && document.body.innerText || "").slice(0, 2000)') or ""
             if re.search(r"验证码|安全验证|异常|captcha|robot|verify", text, re.I):
+                stopped_reason = "site verification or unusual activity detected"
                 break
 
     (internal_dir / "raw_exports" / "cnki_search_results.json").write_text(
@@ -325,7 +375,6 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         encoding="utf-8",
     )
     results = apply_filters(raw_results, str(args.year_from or ""), str(args.year_to or ""), str(args.if_min or ""))
-    results = results[: max(int(args.limit), 0)]
     save_candidate_tables(run_dir, results)
 
     zotero_rows: list[list[str]] = []
@@ -335,7 +384,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     data_dir = locate_zotero_data_dir(args.zotero_data_dir)
     importable_results = [row for row in results if row.get("priority") == "高"]
     non_importable_results = [row for row in results if row.get("priority") != "高"]
-    for row in non_importable_results[: max(int(args.limit), 0)]:
+    for row in non_importable_results:
         reason = "IF missing or does not satisfy requested threshold"
         if row.get("priority") == "中":
             reason = "EasyScholar IF badge not visible; IF threshold cannot be verified"
@@ -351,7 +400,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             row.get("priority", "中"),
         ])
 
-    max_attempts = min(int(args.max_attempts or args.limit), len(importable_results))
+    max_attempts = min(int(args.max_attempts or target_count), target_count, len(importable_results))
 
     for row in importable_results[:max_attempts]:
         attempts += 1
@@ -415,7 +464,9 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 <p>运行方式：DrissionPage 接管 9226 已登录知网浏览器；模式：Zotero 元数据入库，不下载 PDF。</p>
 <p>关键词：{args.query}</p>
 <p>年份：{args.year_from}-{args.year_to}</p>
-<p>候选：{len(results)}，尝试入库：{attempts}，成功/已存在：{zotero_saved}，待处理：{len(pending_rows)}</p>
+<p>目标合格入库数量：{target_count}</p>
+<p>候选：{len(results)}，符合入库条件：{len(importable_results)}，尝试入库：{attempts}，成功/已存在：{zotero_saved}，待处理：{len(pending_rows)}</p>
+<p>停止原因：{stopped_reason or '达到目标或完成本页检索'}</p>
 <p>说明：候选清单先保存；本流程不会点击知网下载、HTML阅读、原版阅读或 CNKI AI 阅读按钮。</p>
 </body></html>"""
     (run_dir / "文献整理报告.html").write_text(html, encoding="utf-8")
@@ -425,11 +476,15 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         "query": args.query,
         "year_from": args.year_from,
         "year_to": args.year_to,
+        "target_qualified_records": target_count,
+        "raw_results": len(raw_results),
         "candidates": len(results),
+        "eligible_for_zotero": len(importable_results),
         "attempted": attempts,
         "downloaded": 0,
         "zotero_saved": zotero_saved,
         "pending": len(pending_rows),
+        "stopped_reason": stopped_reason or "target reached or result pages exhausted",
     }
     (internal_dir / "logs" / "cnki_drission_summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),

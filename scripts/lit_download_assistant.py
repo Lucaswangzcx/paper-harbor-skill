@@ -321,8 +321,8 @@ def create_scaffold(args: argparse.Namespace) -> Path:
         "port": site["port"],
         "start_url": site["url"],
         "keywords": keywords,
-        "record_count": limit,
-        "requested_record_count": requested_limit,
+        "target_qualified_records": limit,
+        "requested_target_qualified_records": requested_limit,
         "hard_record_limit": HARD_RECORD_LIMIT,
         "limit_capped": limit_capped,
         "year_from": year_from,
@@ -335,7 +335,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
         "safety": {
             "scope": "Metadata-only literature screening and Zotero import. No full-text download.",
             "hard_rules": [
-                f"Never exceed {HARD_RECORD_LIMIT} requested records in one run.",
+                f"Never exceed {HARD_RECORD_LIMIT} target qualifying records in one run.",
                 "Do not download PDF/HTML/XML full text.",
                 "Do not process records in parallel; import one Zotero metadata item at a time.",
                 "Do not bypass paywalls, CAPTCHA, subscription checks, rate limits, browser warnings, hidden APIs, mirrors, or unofficial copies.",
@@ -372,7 +372,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 - 关键词：{keywords}
 - 出版时间：{year_text}
 - 影响因子要求：{if_text}
-- 计划整理数量：{limit}{"（已按单次上限 50 自动限制）" if limit_capped else ""}
+- 目标合格入库数量：{limit}{"（已按单次上限 50 自动限制）" if limit_capped else ""}
 - Zotero 目录：{zotero_collection}
 
 ## 强制合规规则
@@ -416,7 +416,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 关键词：{keywords}
 出版时间：{year_text}
 影响因子：{if_text}
-计划整理数量：{limit}
+目标合格入库数量：{limit}
 Zotero 目录：{zotero_collection}
 
 重要：用户必须自己登录；不得绕过付费墙、验证码或权限限制。
@@ -433,7 +433,7 @@ Zotero 目录：{zotero_collection}
 - 关键词：{keywords}
 - 出版时间：{year_text}
 - 影响因子：{if_text}
-- 整理数量：{limit}{"（用户请求 " + str(requested_limit) + "，已按单次上限 50 自动限制）" if limit_capped else ""}
+- 目标合格入库数量：{limit}{"（用户请求 " + str(requested_limit) + "，已按单次上限 50 自动限制）" if limit_capped else ""}
 - Zotero 目录：{zotero_collection}
 
 ## 强制合规规则
@@ -462,7 +462,7 @@ Zotero 目录：{zotero_collection}
 8. 根据主题相关性、年份、可访问性和可信影响因子数据分为高/中/低优先级。
 9. 先保存候选清单，再从候选清单串行写入 Zotero 的 `{zotero_collection}`。
 10. 不打开下载完整期刊/Download full issue，不点击 View PDF 或 Download PDF。
-11. 从高优先级开始保存 Zotero 元数据，直到达到数量要求或无更多匹配文献。
+11. 从高优先级开始保存 Zotero 元数据，直到达到目标合格入库数量、无更多匹配文献或遇到网站限制；不符合 IF 或 IF 待核验的条目只进入待处理清单，不占用目标数量。
 12. 更新 CSV 清单和文献整理报告。
 
 ## 影响因子规则
@@ -496,7 +496,7 @@ Zotero 目录：{zotero_collection}
     <tr><th>关键词</th><td>{keywords}</td></tr>
     <tr><th>出版时间</th><td>{year_text}</td></tr>
     <tr><th>影响因子</th><td>{if_text}</td></tr>
-    <tr><th>计划整理数量</th><td>{limit}{"（已按单次上限 50 自动限制）" if limit_capped else ""}</td></tr>
+    <tr><th>目标合格入库数量</th><td>{limit}{"（已按单次上限 50 自动限制）" if limit_capped else ""}</td></tr>
     <tr><th>Zotero 目录</th><td>{zotero_collection}</td></tr>
     <tr><th>当前状态</th><td>目录已创建，等待登录、检索和 Zotero 入库。</td></tr>
   </table>
@@ -547,7 +547,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--year-to", type=int, help="End publication year")
     parser.add_argument("--if-min", type=float, help="Minimum impact factor")
     parser.add_argument("--if-max", type=float, help="Maximum impact factor")
-    parser.add_argument("--limit", type=int, help="Record count to screen/import")
+    parser.add_argument("--limit", type=int, help="Target qualifying Zotero metadata records to save")
     parser.add_argument("--zotero-collection", help="Zotero collection name to save metadata into")
     parser.add_argument("--out", help="Output root directory")
     parser.add_argument("--run-name", help="Exact run folder name")

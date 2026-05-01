@@ -83,7 +83,7 @@ Extract these fields from the user's prompt. If a field is missing, use the defa
 | `keywords` | Yes | Ask user |
 | `impact_factor` | No | No IF filter; keep IF blank unless available from a user-supplied trusted table or official page |
 | `publication_time` | No | No date filter |
-| `record_count` / `download_count` | No | `20`, capped at `50`; interpreted as number of records to screen/import |
+| `record_count` / `download_count` | No | `20`, capped at `50`; interpreted as the target number of qualifying Zotero metadata records to save, not the number of search results to inspect |
 | `zotero_collection` | No | Use the matching site collection if present, for example `science direct`; otherwise use the currently selected Zotero collection |
 | `output_dir` | No | Current working directory |
 
@@ -177,7 +177,7 @@ README_先看我.md
 
 ## Search Workflow
 
-1. Parse the user's request into site, keywords, year range, impact factor range/minimum, limit, and output root.
+1. Parse the user's request into site, keywords, year range, impact factor range/minimum, target qualifying record count, and output root.
 2. Tell the user which default-browser command to run for the matching site and login port. Wait for the user to confirm login.
 3. Run `scripts/lit_download_assistant.py` to create a run folder and initial files.
 4. Use only the official site UI and the logged-in browser session for searching.
@@ -212,9 +212,10 @@ README_先看我.md
    - Do not request attachments and do not download PDF/HTML/XML full text.
    - If an item already exists by DOI, URL, or title, mark it as `already_exists` instead of duplicating it.
    - If Zotero is unavailable, keep the item in `待处理文献清单.csv`.
-11. Import up to the requested record count from high priority first, then medium if needed. The run cap is `50`; never parallelize imports.
-12. Update `已入库Zotero文献清单.csv` and `待处理文献清单.csv` after every article.
-13. Generate or update `文献整理报告.html`.
+11. Treat the requested count as the target number of qualifying Zotero records to save. Do not let low-priority or IF-missing rows consume this count. Continue scanning reasonable additional official result pages until the target is reached, there are no more results, the site blocks/asks for verification, or the single-run cap of `50` target records applies.
+12. Import from high priority first. Import medium only when no IF rule was requested; if an IF rule was requested, medium rows remain pending until IF is verified. Never parallelize imports.
+13. Update `已入库Zotero文献清单.csv` and `待处理文献清单.csv` after every article.
+14. Generate or update `文献整理报告.html`.
 
 ## Failure Handling
 
