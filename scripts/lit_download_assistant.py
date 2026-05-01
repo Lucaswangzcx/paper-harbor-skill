@@ -140,6 +140,20 @@ CSV_HEADERS = {
         "sha256",
         "notes",
     ],
+    "已入库Zotero文献清单.csv": [
+        "record_id",
+        "title",
+        "doi",
+        "source",
+        "url",
+        "journal",
+        "publication_year",
+        "zotero_item_key",
+        "zotero_status",
+        "saved_at",
+        "access_status",
+        "notes",
+    ],
     "待处理文献清单.csv": [
         "title",
         "doi",
@@ -366,22 +380,22 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 
     readme = f"""# 先看我
 
-本目录是一次文献检索与下载任务的输出目录。
+本目录是一次文献检索与 Zotero 入库任务的输出目录。
 
 - 网站：{site["name"]}
 - 浏览器调试端口：{site["port"]}
 - 关键词：{keywords}
 - 出版时间：{year_text}
 - 影响因子要求：{if_text}
-- 计划下载数量：{limit}{"（已按单次上限 50 自动限制）" if limit_capped else ""}
+- 计划整理数量：{limit}{"（已按单次上限 50 自动限制）" if limit_capped else ""}
 
 ## 强制合规规则
 
-- 单次运行最多下载 50 篇。
-- 优先下载开放获取或机构/账号明确可访问的全文。
-- 不并发下载，一次只处理一篇。
+- 单次运行最多整理 50 篇。
+- 不下载 PDF，不点击全文下载按钮，不处理 PDF 预览页。
+- 不并发处理，一次只保存一条 Zotero 元数据。
 - 不绕过付费墙、验证码、权限限制、异常访问提醒或网站安全提示。
-- 权限不清楚、需要付费、需要验证码、或访问失败的文献，放入待处理清单。
+- 权限不清楚、需要付费、需要验证码、或访问失败的文献，仍保留候选信息并放入待处理清单。
 
 ## 先登录
 
@@ -391,11 +405,11 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 {login_command(site_key)}
 ```
 
-登录完成后，再让 Codex 继续检索和下载。
+登录完成后，再让 Codex 继续检索和 Zotero 入库。
 
 ## 合规说明
 
-这里只下载你的账号、机构订阅或开放获取状态允许访问的全文。遇到验证码、付费、权限不足或异常活动提醒时，应停止并由你手动处理。
+这里只保存题名、DOI、期刊、年份、地址等元数据到 Zotero，不下载全文。遇到验证码、付费、权限不足或异常活动提醒时，应停止并由你手动处理。
 """
     write_text(run_dir / "README_先看我.md", readme)
 
@@ -406,7 +420,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 关键词：{keywords}
 出版时间：{year_text}
 影响因子：{if_text}
-计划下载数量：{limit}
+计划整理数量：{limit}
 
 重要：用户必须自己登录；不得绕过付费墙、验证码或权限限制。
 """
@@ -422,15 +436,15 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 - 关键词：{keywords}
 - 出版时间：{year_text}
 - 影响因子：{if_text}
-- 下载数量：{limit}{"（用户请求 " + str(requested_limit) + "，已按单次上限 50 自动限制）" if limit_capped else ""}
+- 整理数量：{limit}{"（用户请求 " + str(requested_limit) + "，已按单次上限 50 自动限制）" if limit_capped else ""}
 
 ## 强制合规规则
 
-1. 单次运行最多下载 50 篇。
-2. 优先下载开放获取或机构/账号明确可访问的全文。
-3. 不并发下载，一次只处理一篇并立即更新清单。
+1. 单次运行最多整理 50 篇。
+2. 不下载 PDF，不点击全文下载按钮，不处理 PDF 预览页。
+3. 不并发处理，一次只保存一条 Zotero 元数据并立即更新清单。
 4. 不绕过付费墙、验证码、权限限制、异常访问提醒、隐藏接口、镜像站或非官方副本。
-5. 权限不清楚、需要付费、需要验证码、或访问失败的文献，写入 `待处理文献清单.csv`。
+5. 权限不清楚、需要付费、需要验证码、或访问失败的文献，仍保留候选信息并写入 `待处理文献清单.csv`。
 
 ## 登录命令
 
@@ -445,10 +459,10 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 3. 在官方网站 UI 中检索关键词并套用出版时间筛选。
 4. 收集候选文献、文章地址、DOI、期刊、年份、摘要、可访问状态。
 5. 根据主题相关性、年份、可访问性和可信影响因子数据分为高/中/低优先级。
-6. 下载前先确认候选清单；下载阶段从候选清单串行处理。
-7. 若官方页面提供“下载完整期刊/Download full issue”且弹窗可逐篇选择，则只保留目标文章并取消其他文章；如果不能选择，不下载整期。
-8. 从高优先级开始下载可访问全文，直到达到数量要求或无更多可合法下载文献；下载必须串行执行。
-9. 更新 CSV 清单和下载报告。
+6. 先保存候选清单，再从候选清单串行写入 Zotero。
+7. 不打开下载完整期刊/Download full issue，不点击 View PDF 或 Download PDF。
+8. 从高优先级开始保存 Zotero 元数据，直到达到数量要求或无更多匹配文献。
+9. 更新 CSV 清单和文献整理报告。
 
 ## 影响因子规则
 
@@ -464,7 +478,7 @@ def create_scaffold(args: argparse.Namespace) -> Path:
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <title>下载报告</title>
+  <title>文献整理报告</title>
   <style>
     body {{ font-family: Arial, "Microsoft YaHei", sans-serif; margin: 32px; line-height: 1.6; }}
     table {{ border-collapse: collapse; width: 100%; max-width: 920px; }}
@@ -474,26 +488,26 @@ def create_scaffold(args: argparse.Namespace) -> Path:
   </style>
 </head>
 <body>
-  <h1>下载报告</h1>
+  <h1>文献整理报告</h1>
   <table>
     <tr><th>网站</th><td>{site["name"]}</td></tr>
     <tr><th>端口</th><td>{site["port"]}</td></tr>
     <tr><th>关键词</th><td>{keywords}</td></tr>
     <tr><th>出版时间</th><td>{year_text}</td></tr>
     <tr><th>影响因子</th><td>{if_text}</td></tr>
-    <tr><th>计划下载数量</th><td>{limit}{"（已按单次上限 50 自动限制）" if limit_capped else ""}</td></tr>
-    <tr><th>当前状态</th><td>目录已创建，等待登录、检索和下载。</td></tr>
+    <tr><th>计划整理数量</th><td>{limit}{"（已按单次上限 50 自动限制）" if limit_capped else ""}</td></tr>
+    <tr><th>当前状态</th><td>目录已创建，等待登录、检索和 Zotero 入库。</td></tr>
   </table>
   <h2>强制合规规则</h2>
   <ul>
-    <li>单次运行最多下载 50 篇。</li>
-    <li>优先下载开放获取或机构/账号明确可访问的全文。</li>
-    <li>不并发下载，一次只处理一篇。</li>
+    <li>单次运行最多整理 50 篇。</li>
+    <li>不下载 PDF，不点击全文下载按钮，不处理 PDF 预览页。</li>
+    <li>不并发处理，一次只保存一条 Zotero 元数据。</li>
     <li>不绕过付费墙、验证码、权限限制、异常访问提醒或网站安全提示。</li>
     <li>权限不清楚或访问失败的文献写入待处理清单。</li>
   </ul>
   <h2>下一步</h2>
-  <p>打开对应端口浏览器并登录，然后继续执行检索。全文将保存到 <code>已下载全文/</code>。</p>
+  <p>打开对应端口浏览器并登录，同时保持 Zotero Desktop 运行；随后继续执行检索，条目会写入 Zotero，并记录到 <code>已入库Zotero文献清单.csv</code>。</p>
 </body>
 </html>
 """

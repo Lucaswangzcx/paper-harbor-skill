@@ -2,7 +2,7 @@
 
 中文名：文献港
 
-这是一个新的 Codex skill，用来按用户提示词从 Web of Science、ScienceDirect、中国知网三类站点检索文献，并在用户已经登录且有合法访问权限的情况下下载全文。
+这是一个 Codex skill，用来按用户提示词从 Web of Science、ScienceDirect、中国知网三类站点检索文献，筛选候选文章，并把题名、DOI、期刊、年份、官方地址等元数据保存到 Zotero。当前版本不下载 PDF/HTML 全文。
 
 ## 安装依赖
 
@@ -17,26 +17,26 @@ python -m pip install -r requirements.txt
 - 中国知网/CNKI 使用端口 `9226`
 - 用户自己在对应浏览器里登录，skill 不输入账号密码
 - 输出目录按你给的截图创建
-- 单次运行最多下载 `50` 篇，超过会自动按 50 篇封顶
-- 优先下载开放获取或机构/账号明确可访问的全文
-- 不并发下载，一次只处理一篇
+- 单次运行最多整理 `50` 篇，超过会自动按 50 篇封顶
+- 不下载 PDF，不点击 View PDF、Download PDF 或下载完整期刊
+- 不并发处理，一次只保存一条 Zotero 元数据
 - 不绕过付费墙、验证码、权限限制、异常访问提醒或网站安全提示
-- 对用户来说是一条完整流程：先自动保存候选文献的题名、地址、期刊、年份、影响因子字段等基本信息，再从候选清单中串行尝试下载
-- 即使下载失败，也必须交付候选清单、文章地址、待处理清单和失败原因
+- 对用户来说是一条完整流程：先自动保存候选文献的题名、地址、期刊、年份、影响因子字段等基本信息，再从候选清单中串行写入 Zotero
+- 即使 Zotero 入库失败，也必须交付候选清单、文章地址、待处理清单和失败原因
 - ScienceDirect 搜索结果页通常不直接提供影响因子；影响因子需来自 `内部数据_一般不用打开/journal_impact_factors.csv` 或其他可信来源，不能臆造
-- 如果官方页面出现“下载完整期刊/Download full issue”，只在弹窗可逐篇选择时使用：取消所有不符合条件的文章，只保留候选清单里的目标文章；如果不能逐篇取消，就不下载整期
-- ScienceDirect 默认推荐使用 Zotero 辅助保存：Zotero Connector 在已登录浏览器中保存官方文章页，paper-harbor 只读 Zotero 本地库，把已保存的 PDF 附件复制到 `已下载全文`
+- 如果官方页面出现“下载完整期刊/Download full issue”，不要点击；Paper Harbor 只做元数据入库
+- ScienceDirect 默认使用 Zotero Desktop 本地接口保存 metadata-only 条目，不请求 PDF 附件
 
 推荐提示词模板：
 
 ```text
-Use skill paper-harbor 帮我在“网站名”整理下载“关键词”的“时间限制”文献，“影响因子限制”，“篇数限制”，下载到“目录”
+Use skill paper-harbor 帮我在“网站名”整理“关键词”的“时间限制”文献，“影响因子限制”，“篇数限制”，保存到 Zotero 并输出到“目录”
 ```
 
 示例：
 
 ```text
-Use skill paper-harbor 帮我在“ScienceDirect”整理下载“solid electrolyte interphase”的“2021-2026”文献，“影响因子大于5”，“先下载3篇”，下载到“.\runs\sei”
+Use skill paper-harbor 帮我在“ScienceDirect”整理“solid electrolyte interphase”的“2021-2026”文献，“影响因子大于5”，“先整理3篇”，保存到 Zotero 并输出到“.\runs\sei”
 ```
 
 先创建一次输出目录试跑：
@@ -72,10 +72,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\open_zotero_setup.ps1
 按官方页面安装 Zotero Desktop 和当前浏览器的 Zotero Connector，然后打开 Zotero Desktop，再重新运行 doctor。正式跑 ScienceDirect 时推荐：
 
 ```powershell
-python .\scripts\sciencedirect_drission_run.py --port 9225 --query-file .\examples\current_sei_query.txt --year-from 2021 --year-to 2026 --if-min 5 --limit 3 --max-attempts 3 --download-method zotero --out ".\runs\sei-zotero"
+python .\scripts\sciencedirect_drission_run.py --port 9225 --query-file .\examples\current_sei_query.txt --year-from 2021 --year-to 2026 --if-min 5 --limit 3 --out ".\runs\sei-zotero"
 ```
 
-运行时浏览器会打开候选文章页；看到提示后点击浏览器里的 Zotero Connector 按钮保存当前文章，脚本会等待 Zotero 生成 PDF 附件并复制到输出目录。
+运行时浏览器会打开候选文章页；脚本会把筛选出的文献元数据写入 Zotero，并同步更新 `已入库Zotero文献清单.csv`。不会下载 PDF。
 
 ## 开源与隐私说明
 
@@ -86,5 +86,5 @@ python .\scripts\sciencedirect_drission_run.py --port 9225 --query-file .\exampl
 把整个 `literature-site-downloader-skill` 文件夹复制或放到 Codex skills 目录后，就可以用自然语言触发，例如：
 
 ```text
-Use skill paper-harbor 帮我在“ScienceDirect”整理下载“solid electrolyte interphase”的“2021-2026”文献，“影响因子大于8”，“20篇”，下载到“.\runs\sei”
+Use skill paper-harbor 帮我在“ScienceDirect”整理“solid electrolyte interphase”的“2021-2026”文献，“影响因子大于8”，“20篇”，保存到 Zotero 并输出到“.\runs\sei”
 ```

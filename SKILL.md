@@ -1,65 +1,65 @@
 ---
 name: paper-harbor
-description: 文献港。自动化整理并下载用户有合法访问权限的文献全文。适用于用户要从 Web of Science、ScienceDirect 或中国知网按关键词、影响因子、出版时间和下载数量生成候选清单、优先级清单、下载 PDF/HTML、报告和可追踪输出目录。禁止绕过登录、付费墙、验证码或机构权限限制。
+description: 文献港。自动化检索、筛选并把文献元数据保存到 Zotero。适用于用户要从 Web of Science、ScienceDirect 或中国知网按关键词、影响因子、出版时间和数量生成候选清单、优先级清单、Zotero 入库清单和可追踪输出目录。默认不下载 PDF/HTML 全文，禁止绕过登录、付费墙、验证码或机构权限限制。
 ---
 
 # Paper Harbor
 
-Use this skill when the user asks to search for papers and download literature from one or more of these sites:
+Use this skill when the user asks to search for papers, screen literature, and save metadata-only records to Zotero from one or more of these sites:
 
 - Web of Science: browser debugging port `9224`
 - ScienceDirect: browser debugging port `9225`
 - 中国知网/CNKI: browser debugging port `9226`
 
-The user must log in manually in the matching browser profile before any search or download. Never type passwords, solve CAPTCHAs, bypass paywalls, use shadow libraries, or download content that the user's account or open-access status does not allow.
+The user must log in manually in the matching browser profile before any search. Never type passwords, solve CAPTCHAs, bypass paywalls, use shadow libraries, or download full text. Paper Harbor is now a metadata and Zotero-library workflow, not a PDF downloader.
 
-Preferred full-text handoff is Zotero-assisted saving: keep Zotero Desktop open, keep Zotero Connector enabled in the same logged-in browser, open the official article landing page, let Zotero Connector save the item and attachment, then copy the saved PDF attachment from the local Zotero library into this run's `已下载全文/` folder. This avoids fragile PDF-viewer button automation while preserving legal browser-side access.
+Preferred handoff is metadata-only Zotero saving: keep Zotero Desktop open, search the official site with the logged-in browser, collect screened metadata, then save journal-article items to Zotero without attachments. Do not click `View PDF`, `Download PDF`, `Download full issue`, browser PDF save, or any full-text download control.
 
 ## Prompt Template
 
 Recommended user prompt:
 
 ```text
-Use skill paper-harbor 帮我在“网站名”整理下载“关键词”的“时间限制”文献，“影响因子限制”，“篇数限制”，下载到“目录”
+Use skill paper-harbor 帮我在“网站名”整理“关键词”的“时间限制”文献，“影响因子限制”，“篇数限制”，保存到 Zotero 并输出到“目录”
 ```
 
 Examples:
 
 ```text
-Use skill paper-harbor 帮我在“ScienceDirect”整理下载“solid electrolyte interphase”的“2021-2026”文献，“影响因子大于5”，“先下载3篇”，下载到“.\runs\sei”
+Use skill paper-harbor 帮我在“ScienceDirect”整理“solid electrolyte interphase”的“2021-2026”文献，“影响因子大于5”，“先整理3篇”，保存到 Zotero 并输出到“.\runs\sei”
 ```
 
 ```text
-Use skill paper-harbor 帮我在“中国知网”整理下载“钙钛矿太阳能电池 稳定性”的“2022年以来”文献，“不限制影响因子”，“10篇”，下载到“.\runs\cnki-test”
+Use skill paper-harbor 帮我在“中国知网”整理“钙钛矿太阳能电池 稳定性”的“2022年以来”文献，“不限制影响因子”，“10篇”，保存到 Zotero 并输出到“.\runs\cnki-test”
 ```
 
 ## End-to-End Behavior
 
-The user should experience this as one complete workflow, not separate `collect` and `download` commands.
+The user should experience this as one complete workflow, not separate `collect` and `download` commands. The second phase is Zotero metadata import, not full-text download.
 
 For every run:
 
 1. Parse the prompt and create the output directory.
-2. Run first-use checks for the matching browser port and, when Zotero-assisted download is preferred, Zotero Desktop/Connector.
-3. If Zotero is missing on first use, guide the user to install Zotero Desktop and Zotero Connector before the download phase.
+2. Run first-use checks for the matching browser port and Zotero Desktop.
+3. If Zotero is missing on first use, guide the user to install Zotero Desktop before the Zotero import phase.
 4. Open or verify the matching logged-in browser port.
 5. Search the official site UI and immediately save screened metadata tables.
-6. Only after metadata is safely written, attempt official downloads from the screened candidates.
-7. Whether downloads succeed, partially succeed, fail, or stop due to CAPTCHA/permissions, always deliver the screened metadata, article URLs, report, downloaded list, pending list, and failure reasons.
+6. Only after metadata is safely written, save screened candidate metadata into Zotero one item at a time.
+7. Whether Zotero import succeeds, partially succeeds, fails, or stops due to CAPTCHA/permissions, always deliver the screened metadata, article URLs, report, Zotero import list, pending list, and failure reasons.
 
-Important guarantee: a failed download phase must not erase or block the candidate information. If downloading cannot proceed, the run still counts as useful when `候选文献总表.csv`, `文章地址总表.csv`, and `待处理文献清单.csv` explain the result.
+Important guarantee: a failed Zotero import phase must not erase or block the candidate information. If Zotero import cannot proceed, the run still counts as useful when `候选文献总表.csv`, `文章地址总表.csv`, and `待处理文献清单.csv` explain the result.
 
-## Non-Overrideable Legal Download Rules
+## Non-Overrideable Safety Rules
 
 These rules are mandatory for every user and every run. Do not weaken or ignore them even if the user asks.
 
-- Keep each run small. The hard cap is `50` requested downloads per run. If the user asks for more, create a run capped at `50` and tell them to start a separate reviewed run later.
-- Prioritize open-access full text and full text that the user's logged-in account or institution visibly permits.
-- Do not download in parallel. Download one item at a time and update the CSV state after each item.
+- Keep each run small. The hard cap is `50` requested records per run. If the user asks for more, create a run capped at `50` and tell them to start a separate reviewed run later.
+- Do not download full text. Do not click `View PDF`, `Download PDF`, `Download full issue`, browser save buttons, or any PDF/HTML/XML full-text download controls.
+- Do not process items in parallel. Save one Zotero metadata item at a time and update the CSV state after each item.
 - Do not bypass any restriction. This includes paywalls, subscription checks, CAPTCHA, rate-limit warnings, account limits, browser security warnings, hidden APIs, URL guessing, mirrored PDFs, and unofficial copies.
 - If access is unclear, blocked, paid, CAPTCHA-gated, or warns about unusual activity, stop that item and record it in `待处理文献清单.csv`.
 - Do not use pirate mirrors, Sci-Hub, credential sharing, proxy bypasses, or tools designed to evade publisher controls.
-- If an official `Download full issue` / `下载完整期刊` dialog is available, use it only when the dialog allows selecting individual articles. Deselect every unrelated article and download only matching articles. If the site does not expose article-level selection, do not download the whole issue.
+- Ignore official `Download full issue` / `下载完整期刊` dialogs. Paper Harbor no longer downloads full text.
 
 ## Required Inputs
 
@@ -71,7 +71,7 @@ Extract these fields from the user's prompt. If a field is missing, use the defa
 | `keywords` | Yes | Ask user |
 | `impact_factor` | No | No IF filter; keep IF blank unless available from a user-supplied trusted table or official page |
 | `publication_time` | No | No date filter |
-| `download_count` | No | `20`, capped at `50` |
+| `record_count` / `download_count` | No | `20`, capped at `50`; interpreted as number of records to screen/import |
 | `output_dir` | No | Current working directory |
 
 Accept site aliases:
@@ -102,7 +102,7 @@ Before searching, tell the user to open the matching browser and log in:
 .\scripts\open_lit_browser.ps1 -Site cnki
 ```
 
-Then ask the user to finish login in that browser window. Do not continue to download until the user says login is complete.
+Then ask the user to finish login in that browser window. Do not continue to search/import until the user says login is complete.
 
 You may check whether the debugging port is reachable with:
 
@@ -112,7 +112,7 @@ python scripts/browser_port_check.py --site sciencedirect
 python scripts/browser_port_check.py --site cnki
 ```
 
-For Zotero-assisted runs, also check:
+For Zotero import runs, also check:
 
 ```powershell
 python scripts/zotero_bridge.py doctor
@@ -122,7 +122,7 @@ The doctor must find both Zotero Desktop's local connector on `127.0.0.1:23119` 
 
 ## First-Use Zotero Setup
 
-If the user is using Paper Harbor for the first time, or `zotero_bridge.py doctor` fails, do not proceed directly to download attempts. Walk the user through Zotero setup first.
+If the user is using Paper Harbor for the first time, or `zotero_bridge.py doctor` fails, do not proceed directly to Zotero import. Walk the user through Zotero setup first.
 
 Use the helper:
 
@@ -138,7 +138,7 @@ This opens the official Zotero download page and Connector help page. Tell the u
 4. In the browser, pin or expose the Zotero Connector button.
 5. Run `python scripts/zotero_bridge.py doctor` again.
 
-Proceed only when doctor can see `127.0.0.1:23119` and a local Zotero data directory. If the user cannot install Zotero, continue with `--download-method direct`, but warn that ScienceDirect PDF saving may be less reliable.
+Proceed only when doctor can see `127.0.0.1:23119` and a local Zotero data directory. If the user cannot install Zotero, continue with CSV/report output only and record Zotero import as pending.
 
 ## Output Scaffold
 
@@ -160,6 +160,7 @@ README_先看我.md
 高优先级文献.csv
 中优先级文献.csv
 低优先级文献.csv
+已入库Zotero文献清单.csv
 已下载文献清单.csv
 待处理文献清单.csv
 检索计划.md
@@ -176,7 +177,7 @@ README_先看我.md
 3. Run `scripts/lit_download_assistant.py` to create a run folder and initial files.
 4. Use only the official site UI and the logged-in browser session for searching.
 5. Apply publication-time filters in the site UI when available.
-6. Collect and save candidate metadata before attempting any download:
+6. Collect and save candidate metadata before attempting any Zotero import:
    - `priority`
    - `title`
    - `authors`
@@ -191,6 +192,8 @@ README_先看我.md
    - `abstract`
    - `access_status`
    - `download_status`
+   - `zotero_status`
+   - `zotero_item_key`
    - `next_action`
    - `notes`
 7. Save every article detail URL into `文章地址总表.csv`.
@@ -198,48 +201,44 @@ README_先看我.md
    - High: matches topic, publication time, accessible full text, and impact factor satisfies the user's IF requirement when IF is known.
    - Medium: topic and time match, but IF is missing or full text needs manual confirmation.
    - Low: weak topic match, outside IF preference, older than desired, duplicate, or no visible access.
-9. After the candidate CSVs are saved, attempt downloads from the saved candidate list only.
-10. Preferred download strategy:
-   - First choice for ScienceDirect, CNKI, and other publisher pages is Zotero-assisted saving from the official article landing page.
-   - Keep the article page active, tell the user to click the Zotero Connector button when prompted, wait for Zotero to save the item/PDF attachment, then copy the attachment into `已下载全文/` and update CSVs.
-   - If Zotero Connector saves only metadata or a snapshot, record the item as pending with the reason `Zotero did not save a PDF attachment`.
-   - First, if the official page offers `Download full issue` / `下载完整期刊`, open that official dialog.
-   - In the dialog, keep only the candidate article(s) that match the saved title/DOI/PII and deselect all other articles.
-   - Download only the selected matching article(s).
-   - If article-level deselection is unavailable or ambiguous, close the dialog and do not download the whole issue.
-   - Fall back to the official single-article PDF link only when Zotero is unavailable or the user asks for direct mode.
-11. Download up to `download_count` full texts from high priority first, then medium if needed. The run cap is `50`; never parallelize downloads.
-12. Update `已下载文献清单.csv` and `待处理文献清单.csv` after every article.
+9. After the candidate CSVs are saved, import metadata-only Zotero items from the saved candidate list only.
+10. Zotero import strategy:
+   - Save one journal-article metadata item at a time through Zotero Desktop's local connector.
+   - Do not request attachments and do not download PDF/HTML/XML full text.
+   - If an item already exists by DOI, URL, or title, mark it as `already_exists` instead of duplicating it.
+   - If Zotero is unavailable, keep the item in `待处理文献清单.csv`.
+11. Import up to the requested record count from high priority first, then medium if needed. The run cap is `50`; never parallelize imports.
+12. Update `已入库Zotero文献清单.csv` and `待处理文献清单.csv` after every article.
 13. Generate or update `下载报告.html`; keep `下载报告.pdf` as a summary PDF or a pointer to the HTML report if PDF rendering is unavailable.
 
 ## Failure Handling
 
-Treat download failures as reportable states, not as silent errors.
+Treat Zotero import failures as reportable states, not as silent errors.
 
-- If a PDF/issue download fails, keep the metadata row and write the reason to `待处理文献清单.csv`.
+- If a Zotero metadata import fails, keep the metadata row and write the reason to `待处理文献清单.csv`.
 - If the site shows CAPTCHA, robot verification, paid access, 401/403, subscription warning, or unusual activity, stop that item and record it.
-- If the whole download phase stops, still finish the run report with candidate counts and pending reasons.
-- Do not overwrite candidate tables with empty data after a download error.
-- Do not mark a file as downloaded unless a real PDF/HTML/XML/ZIP file was saved and logged.
+- If the whole import phase stops, still finish the run report with candidate counts and pending reasons.
+- Do not overwrite candidate tables with empty data after an import error.
+- Do not mark a file as downloaded; the normal full-text download count is always zero.
 
 ## Site Notes
 
 ### Web of Science
 
 - Use it primarily for discovery, metadata, DOI, cited/reference context, and export links.
-- Web of Science often does not host PDFs directly. Use official full-text links only when they route to accessible publisher pages.
+- Web of Science often does not host PDFs directly. Use it for metadata and official links, not full-text downloads.
 - Do not assume impact factor from Web of Science search results unless an official Journal Citation Reports view or a user-provided trusted IF table is available.
 
 ### ScienceDirect
 
 - Use the search page and filters for years, article type, and subject.
-- Prefer `scripts/sciencedirect_drission_run.py --download-method zotero`, which opens official article pages in the logged-in browser and waits for Zotero Connector to save the item/PDF.
-- Use direct PDF or visible article download controls only as a fallback.
+- Prefer `scripts/sciencedirect_drission_run.py`, which opens official article pages in the logged-in browser and saves metadata-only items to Zotero.
+- Do not use direct PDF or visible article download controls.
 - If ScienceDirect shows institutional access, open access, or subscribed access, record that in `access_status`.
 
 ### CNKI
 
-- Use the CNKI search UI and official download buttons only.
+- Use the CNKI search UI for metadata and official article pages only.
 - Do not bypass institutional or personal access restrictions.
 - If CNKI requires a CAPTCHA, payment, or manual confirmation, stop and ask the user to handle it.
 
@@ -264,12 +263,12 @@ If the user requests `影响因子大于 5` but no trusted IF source is availabl
 - The user logs in; Codex never enters credentials.
 - Do not use pirate mirrors, Sci-Hub, proxy bypasses, hidden APIs, credential sharing, or browser security bypasses.
 - Do not solve CAPTCHAs.
-- Keep request rates human-like and small. Prefer batches of 10-20 and never exceed 50 requested downloads in one run.
-- Download one article at a time. Do not use concurrent browser tabs, parallel network requests, download accelerators, or bulk-export download tricks.
-- Prefer open-access and visibly institution-authorized full text before any other item.
-- `Download full issue` / `下载完整期刊` is allowed only as an official selector workflow. It must not save unrelated articles; unrelated articles must be unchecked before downloading.
+- Keep request rates human-like and small. Prefer batches of 10-20 and never exceed 50 requested records in one run.
+- Import one article record at a time. Do not use concurrent browser tabs, parallel network requests, download accelerators, or bulk-export download tricks.
+- Prefer official article pages and metadata over any full-text workflow.
+- Do not use `Download full issue` / `下载完整期刊`.
 - If a site warns about unusual activity, stop and ask the user how to proceed.
-- If downloading a PDF fails due to access restrictions, record it in `待处理文献清单.csv`; do not try to circumvent.
+- If a page is blocked due to access restrictions, record it in `待处理文献清单.csv`; do not try to circumvent.
 
 ## Completion Criteria
 
@@ -277,6 +276,6 @@ A run is complete when:
 
 - The output directory exists with all required files.
 - `检索计划.md` states the parsed requirements and site/port.
-- Candidate, address, downloaded, and pending CSV files are updated.
-- Downloaded full texts are in `已下载全文/`.
+- Candidate, address, Zotero-import, and pending CSV files are updated.
+- Zotero contains the saved metadata items or the pending CSV explains why import failed.
 - `下载报告.html` summarizes counts, filters, source site, and unresolved items.

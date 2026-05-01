@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Zotero-assisted full-text bridge for paper-harbor.
+"""Zotero bridge for paper-harbor.
 
-This script never writes to the Zotero database. It only checks whether the
-desktop connector is reachable, reads Zotero's local SQLite library, and copies
-PDF attachments that Zotero Connector has already saved legally from the
-user's browser session.
+This script talks to Zotero Desktop through Zotero's local connector endpoint.
+It can save metadata-only journal items and can still read/copy attachments
+that Zotero Connector has already saved legally from the user's browser session.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 
 def safe_file_part(value: str, fallback: str = "zotero_attachment") -> str:
@@ -61,6 +60,33 @@ def ping_zotero(timeout: float = 3.0) -> dict[str, str | bool]:
         return {"ok": False, "error": str(exc)}
 
 
+def connector_post(method: str, payload: dict[str, object], timeout: float = 15.0) -> dict[str, object]:
+    ping = ping_zotero()
+    if not ping.get("ok"):
+        return {"ok": False, "reason": f"Zotero connector is not reachable: {ping.get('error', 'unknown error')}"}
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    request = Request(
+        f"http://127.0.0.1:23119/connector/{method}",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "X-Zotero-Version": str(ping.get("version") or "9.0.1"),
+            "X-Zotero-Connector-API-Version": str(ping.get("api_version") or "3"),
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+            if "application/json" in (response.headers.get("Content-Type") or ""):
+                data = json.loads(raw) if raw else {}
+            else:
+                data = {"content": raw}
+            return {"ok": True, "status_code": response.status, "data": data}
+    except Exception as exc:
+        return {"ok": False, "reason": str(exc)}
+
+
 def candidate_data_dirs(explicit: str | None = None) -> list[Path]:
     roots: list[Path] = []
     if explicit:
@@ -95,6 +121,125 @@ def locate_zotero_data_dir(explicit: str | None = None) -> Path | None:
         if (root / "zotero.sqlite").exists():
             return root
     return None
+
+
+def existing_item_key(data_dir: Path, *, title: str, doi: str, url: str = "") -> str:
+    db_path = data_dir / "zotero.sqlite"
+    wanted_doi = normalize_doi(doi)
+    wanted_title = normalize_text(title)
+    wanted_url = (url or "").strip().lower()
+    query = """
+    SELECT
+      items.key,
+      items.dateAdded,
+      (
+        SELECT idv.value
+        FROM itemData id
+        JOIN fields f ON f.fieldID = id.fieldID
+        JOIN itemDataValues idv ON idv.valueID = id.valueID
+        WHERE id.itemID = items.itemID AND f.fieldName = 'title'
+        LIMIT 1
+      ) AS title,
+      (
+        SELECT idv.value
+        FROM itemData id
+        JOIN fields f ON f.fieldID = id.fieldID
+        JOIN itemDataValues idv ON idv.valueID = id.valueID
+        WHERE id.itemID = items.itemID AND f.fieldName = 'DOI'
+        LIMIT 1
+      ) AS doi,
+      (
+        SELECT idv.value
+        FROM itemData id
+        JOIN fields f ON f.fieldID = id.fieldID
+        JOIN itemDataValues idv ON idv.valueID = id.valueID
+        WHERE id.itemID = items.itemID AND f.fieldName = 'url'
+        LIMIT 1
+      ) AS url
+    FROM items
+    WHERE items.itemID NOT IN (SELECT itemID FROM itemAttachments)
+      AND items.itemID NOT IN (SELECT itemID FROM deletedItems)
+    ORDER BY items.dateAdded DESC
+    LIMIT 1000
+    """
+    with sqlite_connection(db_path) as conn:
+        for key, _added, current_title, current_doi, current_url in conn.execute(query):
+            if wanted_doi and normalize_doi(current_doi or "") == wanted_doi:
+                return str(key or "")
+            if wanted_url and str(current_url or "").strip().lower() == wanted_url:
+                return str(key or "")
+            current = normalize_text(current_title or "")
+            if wanted_title and current and (wanted_title in current or current in wanted_title):
+                return str(key or "")
+    return ""
+
+
+def zotero_item_from_metadata(row: dict[str, str]) -> dict[str, object]:
+    title = row.get("title", "").strip()
+    item: dict[str, object] = {
+        "itemType": "journalArticle",
+        "title": title,
+        "creators": [],
+        "publicationTitle": row.get("journal", "").strip(),
+        "date": row.get("publication_year", "").strip(),
+        "DOI": normalize_doi(row.get("doi", "")),
+        "url": row.get("url", "").strip(),
+        "abstractNote": row.get("abstract", "").strip(),
+        "language": "",
+        "tags": [{"tag": "paper-harbor"}],
+        "notes": [
+            {
+                "note": (
+                    "Imported by paper-harbor as metadata only. "
+                    f"Source: {row.get('source', 'ScienceDirect')}; "
+                    f"Access signal: {row.get('access_status', '')}; "
+                    f"Priority: {row.get('priority', '')}; "
+                    f"Notes: {row.get('notes', '')}"
+                )
+            }
+        ],
+        "attachments": [],
+    }
+    return {key: value for key, value in item.items() if value not in ("", [], None)}
+
+
+def save_metadata_item(row: dict[str, str], data_dir: Path | None = None) -> dict[str, object]:
+    data_dir = data_dir or locate_zotero_data_dir()
+    if not data_dir:
+        return {"ok": False, "status": "pending", "reason": "Zotero data directory not found"}
+    title = row.get("title", "").strip()
+    if not title:
+        return {"ok": False, "status": "pending", "reason": "missing title"}
+    existing = existing_item_key(data_dir, title=title, doi=row.get("doi", ""), url=row.get("url", ""))
+    if existing:
+        return {"ok": True, "status": "already_exists", "zotero_item_key": existing}
+    item = zotero_item_from_metadata(row)
+    session = f"paper-harbor-{int(time.time() * 1000)}"
+    payload = {
+        "sessionID": session,
+        "uri": row.get("url", "") or "https://www.sciencedirect.com/",
+        "proxy": None,
+        "items": [item],
+    }
+    result = connector_post("saveItems", payload)
+    if not result.get("ok"):
+        return {"ok": False, "status": "pending", "reason": result.get("reason", "saveItems failed")}
+    key = ""
+    data = result.get("data")
+    if isinstance(data, dict):
+        items = data.get("items") or data.get("data") or []
+        if isinstance(items, list) and items and isinstance(items[0], dict):
+            key = str(items[0].get("key") or "")
+    deadline = time.time() + 8
+    while not key and time.time() < deadline:
+        time.sleep(1)
+        key = existing_item_key(data_dir, title=title, doi=row.get("doi", ""), url=row.get("url", ""))
+    return {
+        "ok": True,
+        "status": "saved",
+        "zotero_item_key": key,
+        "connector_response": data,
+    }
 
 
 @dataclass

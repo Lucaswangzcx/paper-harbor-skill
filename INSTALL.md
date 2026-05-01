@@ -12,10 +12,10 @@ Copy-Item -Recurse -Force "$src\*" $dst
 然后重启 Codex 或开启新会话。之后可以这样试：
 
 ```text
-Use skill paper-harbor 帮我在“ScienceDirect”整理下载“solid electrolyte interphase”的“2021-2026”文献，“影响因子大于5”，“10篇”，下载到“.\runs\sei”
+Use skill paper-harbor 帮我在“ScienceDirect”整理“solid electrolyte interphase”的“2021-2026”文献，“影响因子大于5”，“10篇”，保存到 Zotero 并输出到“.\runs\sei”
 ```
 
-第一次真正下载前，先打开对应网站端口浏览器并登录：
+第一次真正检索入库前，先打开对应网站端口浏览器并登录：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\open_lit_browser.ps1 -Site sciencedirect
@@ -33,15 +33,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\open_zotero_setup.ps1
 python .\scripts\zotero_bridge.py doctor
 ```
 
-ScienceDirect 推荐用 Zotero 辅助模式：
+ScienceDirect 推荐用 Zotero 元数据入库模式：
 
 ```powershell
-python .\scripts\sciencedirect_drission_run.py --port 9225 --query-file .\examples\current_sei_query.txt --year-from 2021 --year-to 2026 --if-min 5 --limit 3 --max-attempts 3 --download-method zotero --out ".\runs\sei-zotero"
+python .\scripts\sciencedirect_drission_run.py --port 9225 --query-file .\examples\current_sei_query.txt --year-from 2021 --year-to 2026 --if-min 5 --limit 3 --out ".\runs\sei-zotero"
 ```
 
 强制规则：
 
-- 单次运行最多下载 `50` 篇。
-- 优先下载开放获取或机构/账号明确可访问全文。
-- 不并发下载。
+- 单次运行最多整理 `50` 篇。
+- 不下载 PDF/HTML 全文。
+- 不并发处理。
 - 不绕过付费墙、验证码、权限限制、异常访问提醒或网站安全提示。

@@ -21,7 +21,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from zotero_bridge import locate_zotero_data_dir, ping_zotero, wait_for_attachment
+from zotero_bridge import locate_zotero_data_dir, ping_zotero, save_metadata_item, wait_for_attachment
 
 
 def safe_file_part(value: str, fallback: str = "sciencedirect_article") -> str:
@@ -218,6 +218,8 @@ def save_candidate_tables(run_dir: Path, rows: list[dict[str, str]]) -> None:
         "abstract",
         "access_status",
         "download_status",
+        "zotero_status",
+        "zotero_item_key",
         "next_action",
         "notes",
     ]
@@ -237,6 +239,8 @@ def save_candidate_tables(run_dir: Path, rows: list[dict[str, str]]) -> None:
             "",
             row.get("access_status", ""),
             row.get("download_status", "not_attempted"),
+            row.get("zotero_status", "not_attempted"),
+            row.get("zotero_item_key", ""),
             row.get("next_action", "try official full issue selector or View PDF download"),
             row.get("notes", ""),
         ]
@@ -274,6 +278,8 @@ def save_candidate_tables(run_dir: Path, rows: list[dict[str, str]]) -> None:
         "url",
         "access_status",
         "download_status",
+        "zotero_status",
+        "zotero_item_key",
         "next_action",
         "notes",
     ]
@@ -295,6 +301,8 @@ def save_candidate_tables(run_dir: Path, rows: list[dict[str, str]]) -> None:
                     row.get("url", ""),
                     row.get("access_status", ""),
                     row.get("download_status", "not_attempted"),
+                    row.get("zotero_status", "not_attempted"),
+                    row.get("zotero_item_key", ""),
                     row.get("next_action", "try official full issue selector or View PDF download"),
                     row.get("notes", ""),
                 ]
@@ -519,94 +527,97 @@ def run(args: argparse.Namespace) -> dict[str, object]:
 
     for row in results:
         access = row.get("access_status", "")
+        row["source"] = "ScienceDirect"
         row["priority"] = "中" if re.search(r"open access|view pdf|full text", access, re.I) else "低"
-        row["download_status"] = "not_attempted"
-        row["next_action"] = "try official full issue selector or View PDF download"
+        row["download_status"] = "not_downloaded_by_design"
+        row["zotero_status"] = "not_attempted"
+        row["zotero_item_key"] = ""
+        row["next_action"] = "save metadata to Zotero; no PDF download"
     save_candidate_tables(run_dir, results)
 
-    downloaded_rows: list[list[str]] = []
+    zotero_rows: list[list[str]] = []
     pending_rows: list[list[str]] = []
-    downloaded = 0
+    zotero_saved = 0
     attempts = 0
-    max_attempts = min(int(args.max_attempts or args.limit), len(results))
+    data_dir = locate_zotero_data_dir(args.zotero_data_dir)
+    max_requested = min(int(args.limit), len(results))
+    max_attempts = min(int(args.max_attempts or max_requested), max_requested, len(results))
 
     for row in results[:max_attempts]:
-        if downloaded >= args.limit:
+        if zotero_saved >= args.limit:
             break
         attempts += 1
         tab.get(row["url"])
         tab.wait.doc_loaded()
         time.sleep(2)
+        page_text = ""
+        try:
+            page_text = tab.run_js('return (document.body && document.body.innerText || "").slice(0, 2000)') or ""
+        except Exception:
+            page_text = ""
+        if re.search(r"captcha|robot|verify|unusual activity|验证码|机器人|安全验证", page_text, re.I):
+            row["zotero_status"] = "pending"
+            row["next_action"] = "site verification shown; user should resolve manually before rerun"
+            pending_rows.append([row["title"], row.get("doi", ""), "ScienceDirect", row["url"], "site verification or CAPTCHA detected", row["next_action"], row.get("priority", "中")])
+            break
         info = tab.run_js(js_article_pdf_info()) or {}
-        pdf_url = info.get("pdf_url", "") or row.get("pdf_url", "")
         row["doi"] = info.get("doi") or row.get("doi", "")
+        row["title"] = info.get("title") or row.get("title", "")
         row["has_full_issue"] = str(bool(info.get("has_full_issue")))
-        if args.download_method == "zotero" or (args.download_method == "auto" and not pdf_url):
-            title_for_file = info.get("title") or row["title"]
-            saved, method_note = try_download_with_zotero(tab, row, info, download_dir, args)
-        elif not pdf_url:
-            row["download_status"] = "pending"
-            row["next_action"] = "manual check: no official View PDF link found"
-            pending_rows.append([row["title"], row.get("doi", ""), "ScienceDirect", row["url"], "no official View PDF link found", row["next_action"], row.get("priority", "中")])
-            continue
-        else:
-            title_for_file = info.get("title") or row["title"]
-            saved, method_note = try_download_with_downloadkit(tab, pdf_url, download_dir, title_for_file)
-            if saved is None:
-                viewer_saved, viewer_note = try_download_with_pdf_viewer(browser, pdf_url, download_dir, title_for_file)
-                saved = viewer_saved
-                method_note = f"{method_note}; fallback: {viewer_note}"
-            if saved is None and args.download_method == "auto":
-                zotero_saved, zotero_note = try_download_with_zotero(tab, row, info, download_dir, args)
-                saved = zotero_saved
-                method_note = f"{method_note}; Zotero fallback: {zotero_note}"
-
-        if saved and saved.exists() and saved.stat().st_size > 1000:
-            downloaded += 1
-            row["download_status"] = "downloaded"
-            row["next_action"] = f"saved as {saved.name}"
-            downloaded_rows.append([
-                saved.name,
+        result = save_metadata_item(row, data_dir=data_dir)
+        if result.get("ok"):
+            zotero_saved += 1
+            row["zotero_status"] = str(result.get("status") or "saved")
+            row["zotero_item_key"] = str(result.get("zotero_item_key") or "")
+            row["next_action"] = "metadata stored in Zotero; no PDF download attempted"
+            zotero_rows.append([
+                f"sd-{attempts:03d}",
                 row["title"],
                 row.get("doi", ""),
                 "ScienceDirect",
                 row["url"],
+                row.get("journal", ""),
+                row.get("publication_year", ""),
+                row.get("zotero_item_key", ""),
+                row.get("zotero_status", ""),
                 datetime.now().isoformat(timespec="seconds"),
                 row.get("access_status", ""),
-                sha256(saved),
-                method_note,
+                "metadata only; PDF download intentionally disabled",
             ])
         else:
-            row["download_status"] = "pending"
-            row["next_action"] = "manual save from logged-in browser PDF preview save button"
-            pending_rows.append([row["title"], row.get("doi", ""), "ScienceDirect", row["url"], method_note, row["next_action"], row.get("priority", "中")])
+            row["zotero_status"] = "pending"
+            row["next_action"] = "manual Zotero save or rerun after Zotero is available"
+            pending_rows.append([row["title"], row.get("doi", ""), "ScienceDirect", row["url"], str(result.get("reason", "Zotero metadata save failed")), row["next_action"], row.get("priority", "中")])
 
         save_candidate_tables(run_dir, results)
-        write_csv(run_dir / "已下载文献清单.csv", ["filename", "title", "doi", "source", "url", "downloaded_at", "license_or_access", "sha256", "notes"], downloaded_rows)
+        write_csv(run_dir / "已入库Zotero文献清单.csv", ["record_id", "title", "doi", "source", "url", "journal", "publication_year", "zotero_item_key", "zotero_status", "saved_at", "access_status", "notes"], zotero_rows)
+        write_csv(run_dir / "已下载文献清单.csv", ["filename", "title", "doi", "source", "url", "downloaded_at", "license_or_access", "sha256", "notes"], [])
         write_csv(run_dir / "待处理文献清单.csv", ["title", "doi", "source", "url", "reason", "next_action", "priority"], pending_rows)
 
     save_candidate_tables(run_dir, results)
-    write_csv(run_dir / "已下载文献清单.csv", ["filename", "title", "doi", "source", "url", "downloaded_at", "license_or_access", "sha256", "notes"], downloaded_rows)
+    write_csv(run_dir / "已入库Zotero文献清单.csv", ["record_id", "title", "doi", "source", "url", "journal", "publication_year", "zotero_item_key", "zotero_status", "saved_at", "access_status", "notes"], zotero_rows)
+    write_csv(run_dir / "已下载文献清单.csv", ["filename", "title", "doi", "source", "url", "downloaded_at", "license_or_access", "sha256", "notes"], [])
     write_csv(run_dir / "待处理文献清单.csv", ["title", "doi", "source", "url", "reason", "next_action", "priority"], pending_rows)
 
-    html = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>下载报告</title><body>
-<h1>下载报告</h1>
-<p>运行方式：DrissionPage 接管 9225 已登录浏览器；下载方式：{args.download_method}。</p>
+    html = f"""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>文献整理报告</title><body>
+<h1>文献整理报告</h1>
+<p>运行方式：DrissionPage 接管 9225 已登录浏览器；模式：Zotero 元数据入库，不下载 PDF。</p>
 <p>关键词：{args.query}</p>
 <p>年份：{args.year_from}-{args.year_to}</p>
-<p>候选：{len(results)}，尝试：{attempts}，成功下载：{downloaded}，待处理：{len(pending_rows)}</p>
-<p>说明：候选清单先保存；下载失败也保留题名、地址、期刊、年份和失败原因。</p>
+<p>候选：{len(results)}，尝试入库：{attempts}，成功/已存在：{zotero_saved}，待处理：{len(pending_rows)}</p>
+<p>说明：候选清单先保存；本流程不会下载全文或点击 PDF 下载按钮。Zotero 入库失败也会保留题名、地址、期刊、年份和失败原因。</p>
 </body></html>"""
     (run_dir / "下载报告.html").write_text(html, encoding="utf-8")
     summary = {
         "runner": "drission",
-        "download_method": args.download_method,
+        "download_method": "metadata_only",
         "query": args.query,
         "year_from": args.year_from,
         "year_to": args.year_to,
         "candidates": len(results),
         "attempted": attempts,
-        "downloaded": downloaded,
+        "downloaded": 0,
+        "zotero_saved": zotero_saved,
         "pending": len(pending_rows),
     }
     (internal_dir / "logs" / "sciencedirect_drission_summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -622,8 +633,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--year-to", default="")
     parser.add_argument("--if-min", default="")
     parser.add_argument("--limit", type=int, default=5)
-    parser.add_argument("--max-attempts", type=int, default=5)
-    parser.add_argument("--download-method", choices=("auto", "direct", "zotero"), default="zotero")
+    parser.add_argument("--max-attempts", type=int, default=0)
+    parser.add_argument(
+        "--download-method",
+        choices=("metadata", "zotero-metadata", "auto", "direct", "zotero"),
+        default="zotero-metadata",
+        help="Deprecated compatibility option. The runner now saves metadata to Zotero and never downloads PDFs.",
+    )
     parser.add_argument("--zotero-wait-seconds", type=int, default=90)
     parser.add_argument("--zotero-data-dir", default="")
     parser.add_argument("--out", required=True)
