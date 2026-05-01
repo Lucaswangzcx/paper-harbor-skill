@@ -216,6 +216,27 @@ def existing_item_key(data_dir: Path, *, title: str, doi: str, url: str = "") ->
     return ""
 
 
+def item_collection_names(data_dir: Path, item_key: str) -> list[str]:
+    db_path = data_dir / "zotero.sqlite"
+    query = """
+    SELECT c.collectionName
+    FROM items i
+    JOIN collectionItems ci ON ci.itemID = i.itemID
+    JOIN collections c ON c.collectionID = ci.collectionID
+    WHERE i.key = ?
+    ORDER BY c.collectionName
+    """
+    with sqlite_connection(db_path) as conn:
+        return [str(row[0] or "") for row in conn.execute(query, (item_key,))]
+
+
+def selected_collection_name() -> str:
+    selected = get_selected_collection()
+    if not selected.get("ok"):
+        return ""
+    return str(selected.get("name") or selected.get("libraryName") or "").strip()
+
+
 def zotero_item_from_metadata(row: dict[str, str]) -> dict[str, object]:
     title = row.get("title", "").strip()
     item: dict[str, object] = {
@@ -258,9 +279,31 @@ def save_metadata_item(
     title = row.get("title", "").strip()
     if not title:
         return {"ok": False, "status": "pending", "reason": "missing title"}
+    if collection_name:
+        selected_name = selected_collection_name()
+        if selected_name.strip().lower() != collection_name.strip().lower():
+            return {
+                "ok": False,
+                "status": "pending",
+                "reason": (
+                    f"Zotero selected collection is '{selected_name or 'unknown'}', "
+                    f"but requested collection is '{collection_name}'. Select the requested collection in Zotero and rerun."
+                ),
+            }
     existing = existing_item_key(data_dir, title=title, doi=row.get("doi", ""), url=row.get("url", ""))
     if existing:
-        return {"ok": True, "status": "already_exists", "zotero_item_key": existing}
+        collections = item_collection_names(data_dir, existing)
+        if collection_name and collection_name.strip().lower() not in {name.strip().lower() for name in collections}:
+            return {
+                "ok": False,
+                "status": "pending",
+                "zotero_item_key": existing,
+                "reason": (
+                    f"Item already exists in Zotero but not in requested collection '{collection_name}'. "
+                    f"Current collections: {', '.join(collections) or 'none'}."
+                ),
+            }
+        return {"ok": True, "status": "already_exists", "zotero_item_key": existing, "zotero_collection": collection_name}
     item = zotero_item_from_metadata(row)
     session = f"paper-harbor-{int(time.time() * 1000)}"
     target_info = collection_target_by_name(collection_name, collection_target) if (collection_name or collection_target) else {}
