@@ -46,7 +46,7 @@ Use skill paper-harbor 帮我在“中国知网”整理“钙钛矿太阳能电
 ## End-to-End Behavior
 
 The user should experience this as one complete workflow, not separate `collect` and `download` commands. The second phase is Zotero metadata import, not full-text download.
-Web of Science, ScienceDirect, and CNKI should all follow the same overall pipeline: open the logged-in browser, create the output directory, collect candidate metadata, then import into Zotero one item at a time. Only the site-specific selectors and metadata fields differ.
+Web of Science, ScienceDirect, and CNKI should all follow the same overall pipeline: open the logged-in browser, create the output directory, search the official site UI first, inspect the results page with EasyScholar badges visible, collect candidate metadata from the results page, screen by the requested year/IF/count rules, then import into Zotero one item at a time. Only the site-specific selectors and metadata fields differ.
 
 For every run:
 
@@ -56,8 +56,9 @@ For every run:
 4. If EasyScholar is missing or the site result page has no IF badges, stop at the candidate stage, save the metadata tables and a pending note, and ask the user to log in to EasyScholar and refresh the site before rerunning. Do not invent IF.
 5. Open or verify the matching logged-in browser port.
 6. Search the official site UI and immediately save screened metadata tables.
-7. Only after metadata is safely written, save screened candidate metadata into Zotero one item at a time, targeting the requested Zotero collection.
-8. Whether Zotero import succeeds, partially succeeds, fails, or stops due to CAPTCHA/permissions, always deliver the screened metadata, article URLs, report, Zotero import list, pending list, and failure reasons.
+7. When the user provides an IF rule, use only visible EasyScholar/official/trusted IF values for automated pass/fail screening. Items below the threshold or missing visible IF must not be imported as qualifying records.
+8. Only after metadata is safely written, save screened candidate metadata into Zotero one item at a time, targeting the requested Zotero collection.
+9. Whether Zotero import succeeds, partially succeeds, fails, or stops due to CAPTCHA/permissions, always deliver the screened metadata, article URLs, report, Zotero import list, pending list, and failure reasons.
 
 Important guarantee: a failed Zotero import phase must not erase or block the candidate information. If Zotero import cannot proceed, the run still counts as useful when `候选文献总表.csv`, `文章地址总表.csv`, and `待处理文献清单.csv` explain the result.
 

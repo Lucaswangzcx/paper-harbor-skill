@@ -104,6 +104,36 @@ def search_url(query: str) -> str:
     )
 
 
+def perform_search(tab, query: str) -> None:
+    """Search CNKI explicitly from the site UI before collecting results."""
+    tab.get("https://www.cnki.net/")
+    tab.wait.doc_loaded()
+    time.sleep(1.5)
+    try:
+        js = """
+const query = %s;
+const input = document.querySelector('input[type="text"], input[placeholder*="检索"], input[placeholder*="搜索"]');
+if (input) {
+  input.focus();
+  input.value = query;
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+const button = [...document.querySelectorAll('button, a')].find((el) => /检索|搜索/.test((el.innerText || el.textContent || '').trim()));
+if (button) {
+  button.click();
+  return true;
+}
+return false;
+""" % json.dumps(query)
+        clicked = tab.run_js(js)
+    except Exception:
+        clicked = False
+    if not clicked:
+        tab.get(search_url(query))
+    tab.wait.doc_loaded()
+
+
 def js_collect_results() -> str:
     return r"""
 const clean = (s) => (s || '').replace(/\s+/g, ' ').trim();
@@ -123,16 +153,22 @@ for (const tr of rows) {
   const dateMatch = text.match(/\b(20\d{2}|19\d{2})(?:-\d{1,2})?(?:-\d{1,2})?/);
   const year = dateMatch ? dateMatch[1] : '';
   const doiMatch = text.match(/10\.\d{4,9}\/[-._;()/:A-Z0-9]+/i);
+  const ifMatch = text.match(/\bIF\s*([0-9]+(?:\.[0-9]+)?)/i);
   const htmlRead = /HTML阅读|原版阅读|CNKI AI阅读/.test(text);
   items.push({
     title,
     authors,
     journal,
     publication_year: year,
+    impact_factor: ifMatch ? ifMatch[1] : '',
+    metric_year: ifMatch ? '' : '',
+    metric_source: ifMatch ? 'EasyScholar visible badge on CNKI result page' : '',
     doi: doiMatch ? doiMatch[0] : '',
     url: titleAnchor.href.split('#')[0],
     access_status: htmlRead ? 'official CNKI reading link visible' : 'metadata visible in CNKI result',
-    notes: 'CNKI result page metadata; IF待核验：知网结果页不提供影响因子，需用户提供可信影响因子表或手动核验'
+    notes: ifMatch
+      ? 'CNKI result page metadata; IF read from visible EasyScholar badge'
+      : 'CNKI result page metadata; IF待核验：结果页未显示 EasyScholar IF，需用户刷新插件或手动核验'
   });
 }
 return items;
@@ -176,8 +212,17 @@ def prefer_cnki_title(search_title: str, page_title: str) -> tuple[str, str]:
     return page, ""
 
 
-def apply_filters(rows: list[dict[str, str]], year_from: str, year_to: str) -> list[dict[str, str]]:
+def parse_float(value: object) -> float | None:
+    try:
+        text = str(value or "").strip()
+        return float(text) if text else None
+    except ValueError:
+        return None
+
+
+def apply_filters(rows: list[dict[str, str]], year_from: str, year_to: str, if_min: str = "") -> list[dict[str, str]]:
     filtered = []
+    min_if = parse_float(if_min)
     for row in rows:
         year_text = row.get("publication_year", "")
         year = int(year_text) if year_text.isdigit() else 0
@@ -185,11 +230,21 @@ def apply_filters(rows: list[dict[str, str]], year_from: str, year_to: str) -> l
             continue
         if year_to and year and year > int(year_to):
             continue
-        row["priority"] = "中"
+        current_if = parse_float(row.get("impact_factor", ""))
+        if min_if is not None:
+            if current_if is None:
+                row["priority"] = "中"
+                row["next_action"] = "pending IF verification; EasyScholar IF badge not visible"
+                continue
+            if current_if <= min_if:
+                row["priority"] = "低"
+                row["next_action"] = f"skip Zotero import; IF {current_if:g} does not exceed {min_if:g}"
+                continue
+        row["priority"] = "高" if current_if is not None else "中"
         row["source"] = "CNKI"
-        row["impact_factor"] = ""
-        row["metric_year"] = ""
-        row["metric_source"] = ""
+        row["impact_factor"] = row.get("impact_factor", "")
+        row["metric_year"] = row.get("metric_year", "")
+        row["metric_source"] = row.get("metric_source", "")
         row["zotero_status"] = "not_attempted"
         row["zotero_item_key"] = ""
         row["next_action"] = "save metadata to Zotero; no full-text download"
@@ -253,8 +308,7 @@ def run(args: argparse.Namespace) -> dict[str, object]:
     browser = connect_browser(args.port)
     tab = open_tab(browser)
     tab.set.timeouts(12)
-    tab.get(search_url(args.query))
-    tab.wait.doc_loaded()
+    perform_search(tab, args.query)
 
     raw_results = []
     for _ in range(12):
@@ -265,12 +319,23 @@ def run(args: argparse.Namespace) -> dict[str, object]:
         text = tab.run_js('return (document.body && document.body.innerText || "").slice(0, 2000)') or ""
         if re.search(r"验证码|安全验证|异常|captcha|robot|verify", text, re.I):
             break
+    if not raw_results:
+        tab.get(search_url(args.query))
+        tab.wait.doc_loaded()
+        for _ in range(12):
+            time.sleep(2)
+            raw_results = tab.run_js(js_collect_results()) or []
+            if raw_results:
+                break
+            text = tab.run_js('return (document.body && document.body.innerText || "").slice(0, 2000)') or ""
+            if re.search(r"验证码|安全验证|异常|captcha|robot|verify", text, re.I):
+                break
 
     (internal_dir / "raw_exports" / "cnki_search_results.json").write_text(
         json.dumps(raw_results, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    results = apply_filters(raw_results, str(args.year_from or ""), str(args.year_to or ""))
+    results = apply_filters(raw_results, str(args.year_from or ""), str(args.year_to or ""), str(args.if_min or ""))
     results = results[: max(int(args.limit), 0)]
     save_candidate_tables(run_dir, results)
 
