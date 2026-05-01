@@ -153,6 +153,29 @@ return { title, doi, publication_year: year, abstract: clean(abstract) };
 """
 
 
+def prefer_cnki_title(search_title: str, page_title: str) -> tuple[str, str]:
+    """Keep the search-result title unless the page title looks trustworthy."""
+    search = (search_title or "").strip()
+    page = (page_title or "").strip()
+    if not page:
+        return search, ""
+    lowered = page.lower()
+    suspicious_tokens = (
+        "自动登录",
+        "登录",
+        "sign in",
+        "log in",
+        "cnki",
+        "中国知网",
+        "知网",
+    )
+    if any(token in lowered for token in suspicious_tokens):
+        return search or page, page
+    if search and len(page) < len(search) * 0.6:
+        return search, page
+    return page, ""
+
+
 def apply_filters(rows: list[dict[str, str]], year_from: str, year_to: str) -> list[dict[str, str]]:
     filtered = []
     for row in rows:
@@ -270,10 +293,15 @@ def run(args: argparse.Namespace) -> dict[str, object]:
             pending_rows.append([row["title"], row.get("doi", ""), "CNKI", row["url"], "site verification detected", row["next_action"], row.get("priority", "中")])
             break
         info = tab.run_js(js_article_metadata()) or {}
-        row["title"] = info.get("title") or row.get("title", "")
+        title, generic_page_title = prefer_cnki_title(row.get("title", ""), str(info.get("title") or ""))
+        row["title"] = title
         row["doi"] = info.get("doi") or row.get("doi", "")
         row["publication_year"] = info.get("publication_year") or row.get("publication_year", "")
         row["abstract"] = info.get("abstract") or row.get("abstract", "")
+        if generic_page_title and generic_page_title != row["title"]:
+            note = row.get("notes", "").strip()
+            extra = f"CNKI article page showed generic title '{generic_page_title}'; kept search-result title."
+            row["notes"] = f"{note}; {extra}" if note else extra
         result = save_metadata_item(row, data_dir=data_dir)
         if result.get("ok"):
             zotero_saved += 1
